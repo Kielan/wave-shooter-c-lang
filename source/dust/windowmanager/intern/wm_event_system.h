@@ -1,3 +1,279 @@
+#ifdef WITH_INPUT_NDOF
+/* Adds custom-data to event. */
+static void attach_ndof_data(wmEvent *event, const GHOST_TEventNDOFMotionData *ghost)
+{
+  wmNDOFMotionData *data = MEM_cnew<wmNDOFMotionData>("Custom-data NDOF");
+
+  const float ts = U.ndof_sensitivity;
+  const float rs = U.ndof_orbit_sensitivity;
+
+  mul_v3_v3fl(data->tvec, &ghost->tx, ts);
+  mul_v3_v3fl(data->rvec, &ghost->rx, rs);
+
+  if (U.ndof_flag & NDOF_PAN_YZ_SWAP_AXIS) {
+    float t;
+    t = data->tvec[1];
+    data->tvec[1] = -data->tvec[2];
+    data->tvec[2] = t;
+  }
+
+  data->dt = ghost->dt;
+
+  data->progress = (wmProgress)ghost->progress;
+
+  event->custom = EVT_DATA_NDOF_MOTION;
+  event->customdata = data;
+  event->customdata_free = true;
+}
+#endif /* WITH_INPUT_NDOF */
+
+/* Imperfect but probably usable... draw/enable drags to other windows. */
+static wmWindow *wm_event_cursor_other_windows(wmWindowManager *wm, wmWindow *win, wmEvent *event)
+{
+  /* If GHOST doesn't support window positioning, don't use this feature at all. */
+  const static int8_t supports_window_position = GHOST_SupportsWindowPosition();
+  if (!supports_window_position) {
+    return nullptr;
+  }
+
+  if (wm->windows.first == wm->windows.last) {
+    return nullptr;
+  }
+
+  /* In order to use window size and mouse position (pixels), we have to use a WM function. */
+
+  /* Check if outside, include top window bar. */
+  int event_xy[2] = {UNPACK2(event->xy)};
+  if (event_xy[0] < 0 || event_xy[1] < 0 || event_xy[0] > WM_window_pixels_x(win) ||
+      event_xy[1] > WM_window_pixels_y(win) + 30) {
+    /* Let's skip windows having modal handlers now. */
+    /* Potential XXX ugly... I wouldn't have added a `modalhandlers` list
+     * (introduced in rev 23331, ton). */
+    LISTBASE_FOREACH (wmEventHandler *, handler, &win->modalhandlers) {
+      if (ELEM(handler->type, WM_HANDLER_TYPE_UI, WM_HANDLER_TYPE_OP)) {
+        return nullptr;
+      }
+    }
+
+    wmWindow *win_other = WM_window_find_under_cursor(win, event_xy, event_xy);
+    if (win_other && win_other != win) {
+      copy_v2_v2_int(event->xy, event_xy);
+      return win_other;
+    }
+  }
+  return nullptr;
+}
+
+static bool wm_event_is_double_click(const wmEvent *event)
+{
+  if ((event->type == event->prev_type) && (event->prev_val == KM_RELEASE) &&
+      (event->val == KM_PRESS)) {
+    if (ISMOUSE_BUTTON(event->type) && WM_event_drag_test(event, event->prev_press_xy)) {
+      /* Pass. */
+    }
+    else {
+      if ((PIL_check_seconds_timer() - event->prev_press_time) * 1000 < U.dbl_click_time) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Copy the current state to the previous event state.
+ */
+static void wm_event_prev_values_set(wmEvent *event, wmEvent *event_state)
+{
+  event->prev_val = event_state->prev_val = event_state->val;
+  event->prev_type = event_state->prev_type = event_state->type;
+}
+
+static void wm_event_prev_click_set(wmEvent *event_state)
+{
+  event_state->prev_press_time = PIL_check_seconds_timer();
+  event_state->prev_press_type = event_state->type;
+  event_state->prev_press_modifier = event_state->modifier;
+  event_state->prev_press_keymodifier = event_state->keymodifier;
+  event_state->prev_press_xy[0] = event_state->xy[0];
+  event_state->prev_press_xy[1] = event_state->xy[1];
+}
+
+static wmEvent *wm_event_add_mousemove(wmWindow *win, const wmEvent *event)
+{
+  wmEvent *event_last = static_cast<wmEvent *>(win->event_queue.last);
+
+  /* Some painting operators want accurate mouse events, they can
+   * handle in between mouse move moves, others can happily ignore
+   * them for better performance. */
+  if (event_last && event_last->type == MOUSEMOVE) {
+    event_last->type = INBETWEEN_MOUSEMOVE;
+    event_last->flag = (eWM_EventFlag)0;
+  }
+
+  wmEvent *event_new = wm_event_add(win, event);
+  if (event_last == nullptr) {
+    event_last = win->eventstate;
+  }
+
+  copy_v2_v2_int(event_new->prev_xy, event_last->xy);
+  return event_new;
+}
+
+
+static wmEvent *wm_event_add_mousemove_to_head(wmWindow *win)
+{
+  /* Use the last handled event instead of `win->eventstate` because the state of the modifiers
+   * and previous values should be set based on the last state, not using values from the future.
+   * So this gives an accurate simulation of mouse motion before the next event is handled. */
+  const wmEvent *event_last = win->event_last_handled;
+
+  wmEvent tevent;
+  if (event_last) {
+    tevent = *event_last;
+
+    tevent.flag = (eWM_EventFlag)0;
+    tevent.utf8_buf[0] = '\0';
+
+    wm_event_custom_clear(&tevent);
+  }
+  else {
+    memset(&tevent, 0x0, sizeof(tevent));
+  }
+
+  tevent.type = MOUSEMOVE;
+  tevent.val = KM_NOTHING;
+  copy_v2_v2_int(tevent.prev_xy, tevent.xy);
+
+  wmEvent *event_new = wm_event_add(win, &tevent);
+  BLI_remlink(&win->event_queue, event_new);
+  BLI_addhead(&win->event_queue, event_new);
+
+  copy_v2_v2_int(event_new->prev_xy, event_last->xy);
+  return event_new;
+}
+
+static wmEvent *wm_event_add_trackpad(wmWindow *win, const wmEvent *event, int deltax, int deltay)
+{
+  /* Ignore in between track-pad events for performance, we only need high accuracy
+   * for painting with mouse moves, for navigation using the accumulated value is ok. */
+  wmEvent *event_last = static_cast<wmEvent *>(win->event_queue.last);
+  if (event_last && event_last->type == event->type) {
+    deltax += event_last->xy[0] - event_last->prev_xy[0];
+    deltay += event_last->xy[1] - event_last->prev_xy[1];
+
+    wm_event_free_last(win);
+  }
+
+  /* Set prev_xy, the delta is computed from this in operators. */
+  wmEvent *event_new = wm_event_add(win, event);
+  event_new->prev_xy[0] = event_new->xy[0] - deltax;
+  event_new->prev_xy[1] = event_new->xy[1] - deltay;
+
+  return event_new;
+}
+
+/**
+ * Update the event-state for any kind of event that supports #KM_PRESS / #KM_RELEASE.
+ *
+ * \param check_double_click: Optionally skip checking for double-click events.
+ * Needed for event simulation where the time of click events is not so predictable.
+ */
+static void wm_event_state_update_and_click_set_ex(wmEvent *event,
+                                                   wmEvent *event_state,
+                                                   const bool is_keyboard,
+                                                   const bool check_double_click)
+{
+  BLI_assert(ISKEYBOARD_OR_BUTTON(event->type));
+  BLI_assert(ELEM(event->val, KM_PRESS, KM_RELEASE));
+
+  /* Only copy these flags into the `event_state`. */
+  const eWM_EventFlag event_state_flag_mask = WM_EVENT_IS_REPEAT;
+
+  wm_event_prev_values_set(event, event_state);
+
+  /* Copy to event state. */
+  event_state->val = event->val;
+  event_state->type = event->type;
+  /* It's important only to write into the `event_state` modifier for keyboard
+   * events because emulate MMB clears one of the modifiers in `event->modifier`,
+   * making the second press not behave as if the modifier is pressed, see T96279. */
+  if (is_keyboard) {
+    event_state->modifier = event->modifier;
+  }
+  event_state->flag = (event->flag & event_state_flag_mask);
+  /* NOTE: It's important that `keymodifier` is handled in the keyboard event handling logic
+   * since the `event_state` and the `event` are not kept in sync. */
+
+  /* Double click test. */
+  if (check_double_click && wm_event_is_double_click(event)) {
+    CLOG_INFO(WM_LOG_HANDLERS, 1, "DBL_CLICK: detected");
+    event->val = KM_DBL_CLICK;
+  }
+  else if (event->val == KM_PRESS) {
+    if ((event->flag & WM_EVENT_IS_REPEAT) == 0) {
+      wm_event_prev_click_set(event_state);
+    }
+  }
+}
+
+static void wm_event_state_update_and_click_set(wmEvent *event,
+                                                wmEvent *event_state,
+                                                const GHOST_TEventType type)
+{
+  const bool is_keyboard = ELEM(type, GHOST_kEventKeyDown, GHOST_kEventKeyUp);
+  const bool check_double_click = true;
+  wm_event_state_update_and_click_set_ex(event, event_state, is_keyboard, check_double_click);
+}
+
+/* Returns true when the two events corresponds to a press of the same key with the same modifiers.
+ */
+static bool wm_event_is_same_key_press(const wmEvent &event_a, const wmEvent &event_b)
+{
+  if (event_a.val != KM_PRESS || event_b.val != KM_PRESS) {
+    return false;
+  }
+
+  if (event_a.modifier != event_b.modifier || event_a.type != event_b.type) {
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * Returns true if the event is a key press event which is to be ignored and not added to the event
+ * queue.
+ *
+ * A key press event will be ignored if there is already matched key press in the queue.
+ * This avoids the event queue "clogging" in the situations when there is an operator bound to a
+ * key press event and the execution time of the operator is longer than the key repeat.
+ */
+static bool wm_event_is_ignorable_key_press(const wmWindow *win, const wmEvent &event)
+{
+  if (BLI_listbase_is_empty(&win->event_queue)) {
+    /* If the queue is empty never ignore the event.
+     * Empty queue at this point means that the events are handled fast enough, and there is no
+     * reason to ignore anything. */
+    return false;
+  }
+
+  if ((event.flag & WM_EVENT_IS_REPEAT) == 0) {
+    /* Only ignore repeat events from the keyboard, and allow accumulation of non-repeat events.
+     *
+     * The goal of this check is to allow events coming from a keyboard macro software, which can
+     * generate events quicker than the main loop handles them. In this case we want all events to
+     * be handled (unless the keyboard macro software tags them as repeat) because otherwise it
+     * will become impossible to get reliable results of automated events testing. */
+    return false;
+  }
+
+  const wmEvent &last_event = *static_cast<const wmEvent *>(win->event_queue.last);
+
+  return wm_event_is_same_key_press(last_event, event);
+}
+
 void wm_event_add_ghostevent(wmWindowManager *wm, wmWindow *win, int type, void *customdata)
 {
   if (UNLIKELY(G.f & G_FLAG_EVENT_SIMULATE)) {
