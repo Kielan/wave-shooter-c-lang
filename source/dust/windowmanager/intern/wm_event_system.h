@@ -1,3 +1,157 @@
+
+
+void WM_event_add_fileselect(bContext *C, wmOperator *op)
+{
+  wmWindowManager *wm = CTX_wm_manager(C);
+  wmWindow *ctx_win = CTX_wm_window(C);
+
+  /* The following vars define the root context. That is essentially the "parent" context of the
+   * File Browser operation, to be restored for eventually executing the file operation. */
+  wmWindow *root_win = wm_event_find_fileselect_root_window_from_context(C);
+  /* Determined later. */
+  ScrArea *root_area = nullptr;
+  ARegion *root_region = nullptr;
+
+  /* Close any popups, like when opening a file browser from the splash. */
+  UI_popup_handlers_remove_all(C, &root_win->modalhandlers);
+
+  /* Setting the context window unsets the context area & screen. Avoid doing that, so operators
+   * calling the file browser can operate in the context the browser was opened in. */
+  if (ctx_win != root_win) {
+    CTX_wm_window_set(C, root_win);
+  }
+
+  /* The root window may already have a File Browser open. Cancel it if so, only 1 should be open
+   * per window. The root context of this operation is also used for the new operation. */
+  LISTBASE_FOREACH_MUTABLE (wmEventHandler *, handler_base, &root_win->modalhandlers) {
+    if (handler_base->type == WM_HANDLER_TYPE_OP) {
+      wmEventHandler_Op *handler = (wmEventHandler_Op *)handler_base;
+      if (handler->is_fileselect == false) {
+        continue;
+      }
+
+      wm_handler_op_context_get_if_valid(
+          C, handler, ctx_win->eventstate, &root_area, &root_region);
+
+      ScrArea *file_area = ED_fileselect_handler_area_find(root_win, handler->op);
+
+      if (file_area) {
+        CTX_wm_area_set(C, file_area);
+        wm_handler_fileselect_do(C, &root_win->modalhandlers, handler, EVT_FILESELECT_CANCEL);
+      }
+      /* If not found we stop the handler without changing the screen. */
+      else {
+        wm_handler_fileselect_do(
+            C, &root_win->modalhandlers, handler, EVT_FILESELECT_EXTERNAL_CANCEL);
+      }
+    }
+  }
+
+  BLI_assert(root_win != nullptr);
+  /* When not reusing the root context from a previous file browsing operation, use the current
+   * area & region, if they are inside the root window. */
+  if (!root_area && ctx_win == root_win) {
+    root_area = CTX_wm_area(C);
+    root_region = CTX_wm_region(C);
+  }
+
+  wmEventHandler_Op *handler = MEM_cnew<wmEventHandler_Op>(__func__);
+  handler->head.type = WM_HANDLER_TYPE_OP;
+
+  handler->is_fileselect = true;
+  handler->op = op;
+  handler->context.win = root_win;
+  handler->context.area = root_area;
+  handler->context.region = root_region;
+
+  BLI_addhead(&root_win->modalhandlers, handler);
+
+  /* Check props once before invoking if check is available
+   * ensures initial properties are valid. */
+  if (op->type->check) {
+    op->type->check(C, op); /* Ignore return value. */
+  }
+
+  WM_event_fileselect_event(wm, op, EVT_FILESELECT_FULL_OPEN);
+
+  if (ctx_win != root_win) {
+    CTX_wm_window_set(C, ctx_win);
+  }
+}
+
+/* -------------------------------------------------------------------- */
+/** \name Modal Operator Handling
+
+#if 0
+/* Lets not expose struct outside wm? */
+static void WM_event_set_handler_flag(wmEventHandler *handler, int flag)
+{
+  handler->flag = flag;
+}
+#endif
+
+wmEventHandler_Op *WM_event_add_modal_handler(bContext *C, wmOperator *op)
+{
+  wmEventHandler_Op *handler = MEM_cnew<wmEventHandler_Op>(__func__);
+  handler->head.type = WM_HANDLER_TYPE_OP;
+  wmWindow *win = CTX_wm_window(C);
+
+  /* Operator was part of macro. */
+  if (op->opm) {
+    /* Give the mother macro to the handler. */
+    handler->op = op->opm;
+    /* Mother macro `opm` becomes the macro element. */
+    handler->op->opm = op;
+  }
+  else {
+    handler->op = op;
+  }
+
+  handler->context.area = CTX_wm_area(C); /* Means frozen screen context for modal handlers! */
+  handler->context.region = CTX_wm_region(C);
+  handler->context.region_type = handler->context.region ? handler->context.region->regiontype :
+                                                           -1;
+
+  BLI_addhead(&win->modalhandlers, handler);
+
+  if (op->type->modalkeymap) {
+    WM_window_status_area_tag_redraw(win);
+  }
+
+  return handler;
+}
+
+void WM_event_modal_handler_area_replace(wmWindow *win, const ScrArea *old_area, ScrArea *new_area)
+{
+  LISTBASE_FOREACH (wmEventHandler *, handler_base, &win->modalhandlers) {
+    if (handler_base->type == WM_HANDLER_TYPE_OP) {
+      wmEventHandler_Op *handler = (wmEventHandler_Op *)handler_base;
+      /* File-select handler is quite special.
+       * it needs to keep old area stored in handler, so don't change it. */
+      if ((handler->context.area == old_area) && (handler->is_fileselect == false)) {
+        handler->context.area = new_area;
+      }
+    }
+  }
+}
+
+void WM_event_modal_handler_region_replace(wmWindow *win,
+                                           const ARegion *old_region,
+                                           ARegion *new_region)
+{
+  LISTBASE_FOREACH (wmEventHandler *, handler_base, &win->modalhandlers) {
+    if (handler_base->type == WM_HANDLER_TYPE_OP) {
+      wmEventHandler_Op *handler = (wmEventHandler_Op *)handler_base;
+      /* File-select handler is quite special.
+       * it needs to keep old region stored in handler, so don't change it. */
+      if ((handler->context.region == old_region) && (handler->is_fileselect == false)) {
+        handler->context.region = new_region;
+        handler->context.region_type = new_region ? new_region->regiontype : int(RGN_TYPE_WINDOW);
+      }
+    }
+  }
+}
+
 wmEventHandler_Keymap *WM_event_add_keymap_handler(ListBase *handlers, wmKeyMap *keymap)
 {
   if (!keymap) {
