@@ -1,3 +1,36 @@
+constexpr wmTabletData wm_event_tablet_data_default()
+{
+  wmTabletData tablet_data{};
+  tablet_data.active = EVT_TABLET_NONE;
+  tablet_data.pressure = 1.0f;
+  tablet_data.x_tilt = 0.0f;
+  tablet_data.y_tilt = 0.0f;
+  tablet_data.is_motion_absolute = false;
+  return tablet_data;
+}
+
+void WM_event_tablet_data_default_set(wmTabletData *tablet_data)
+{
+  *tablet_data = wm_event_tablet_data_default();
+}
+
+void wm_tablet_data_from_ghost(const GHOST_TabletData *tablet_data, wmTabletData *wmtab)
+{
+  if ((tablet_data != nullptr) && tablet_data->Active != GHOST_kTabletModeNone) {
+    wmtab->active = int(tablet_data->Active);
+    wmtab->pressure = wm_pressure_curve(tablet_data->Pressure);
+    wmtab->x_tilt = tablet_data->Xtilt;
+    wmtab->y_tilt = tablet_data->Ytilt;
+    /* We could have a preference to support relative tablet motion (we can't detect that). */
+    wmtab->is_motion_absolute = true;
+    // printf("%s: using tablet %.5f\n", __func__, wmtab->pressure);
+  }
+  else {
+    *wmtab = wm_event_tablet_data_default();
+    // printf("%s: not using tablet\n", __func__);
+  }
+}
+
 #ifdef WITH_INPUT_NDOF
 /* Adds custom-data to event. */
 static void attach_ndof_data(wmEvent *event, const GHOST_TEventNDOFMotionData *ghost)
