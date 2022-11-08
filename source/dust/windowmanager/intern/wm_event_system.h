@@ -1,3 +1,8 @@
+void WM_event_add_mousemove(wmWindow *win)
+{
+  win->addmousemove = 1;
+}
+
 /* -------------------------------------------------------------------- */
 /** name Ghost Event Conversion
 
