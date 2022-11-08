@@ -1,4 +1,805 @@
+wmEvent *wm_event_add_ex(wmWindow *win,
+                         const wmEvent *event_to_add,
+                         const wmEvent *event_to_add_after)
+{
+  wmEvent *event = MEM_new<wmEvent>(__func__);
 
+  *event = *event_to_add;
+
+  if (event_to_add_after == nullptr) {
+    BLI_addtail(&win->event_queue, event);
+  }
+  else {
+    /* NOTE: strictly speaking this breaks const-correctness,
+     * however we're only changing 'next' member. */
+    BLI_insertlinkafter(&win->event_queue, (void *)event_to_add_after, event);
+  }
+  return event;
+}
+
+wmEvent *wm_event_add(wmWindow *win, const wmEvent *event_to_add)
+{
+  return wm_event_add_ex(win, event_to_add, nullptr);
+}
+
+wmEvent *WM_event_add_simulate(wmWindow *win, const wmEvent *event_to_add)
+{
+  if ((G.f & G_FLAG_EVENT_SIMULATE) == 0) {
+    BLI_assert_unreachable();
+    return nullptr;
+  }
+  wmEvent *event = wm_event_add(win, event_to_add);
+
+  /* Logic for setting previous value is documented on the #wmEvent struct,
+   * see #wm_event_add_ghostevent for the implementation of logic this follows. */
+  copy_v2_v2_int(win->eventstate->xy, event->xy);
+
+  if (event->type == MOUSEMOVE) {
+    copy_v2_v2_int(win->eventstate->prev_xy, win->eventstate->xy);
+    copy_v2_v2_int(event->prev_xy, win->eventstate->xy);
+  }
+  else if (ISKEYBOARD_OR_BUTTON(event->type)) {
+    wm_event_state_update_and_click_set_ex(event, win->eventstate, ISKEYBOARD(event->type), false);
+  }
+  return event;
+}
+
+static void wm_event_custom_free(wmEvent *event)
+{
+  if ((event->customdata && event->customdata_free) == 0) {
+    return;
+  }
+
+  /* NOTE: pointer to #ListBase struct elsewhere. */
+  if (event->custom == EVT_DATA_DRAGDROP) {
+    ListBase *lb = static_cast<ListBase *>(event->customdata);
+    WM_drag_free_list(lb);
+  }
+  else {
+    MEM_freeN(event->customdata);
+  }
+}
+
+static void wm_event_custom_clear(wmEvent *event)
+{
+  event->custom = 0;
+  event->customdata = nullptr;
+  event->customdata_free = false;
+}
+
+void wm_event_free(wmEvent *event)
+{
+#ifndef NDEBUG
+  /* Don't use assert here because it's fairly harmless in most cases,
+   * more an issue of correctness, something we should avoid in general. */
+  if ((event->flag & WM_EVENT_IS_REPEAT) && !ISKEYBOARD(event->type)) {
+    printf("%s: 'is_repeat=true' for non-keyboard event, this should not happen.\n", __func__);
+    WM_event_print(event);
+  }
+  if (ISMOUSE_MOTION(event->type) && (event->val != KM_NOTHING)) {
+    printf("%s: 'val != NOTHING' for a cursor motion event, this should not happen.\n", __func__);
+    WM_event_print(event);
+  }
+#endif
+
+  wm_event_custom_free(event);
+
+  MEM_freeN(event);
+}
+
+/** A version of #wm_event_free that holds the last handled event. */
+static void wm_event_free_last_handled(wmWindow *win, wmEvent *event)
+{
+  /* Don't rely on this pointer being valid,
+   * callers should behave as if the memory has been freed.
+   * As this function should be interchangeable with #wm_event_free. */
+#ifndef NDEBUG
+  {
+    wmEvent *event_copy = static_cast<wmEvent *>(MEM_dupallocN(event));
+    MEM_freeN(event);
+    event = event_copy;
+  }
+#endif
+
+  if (win->event_last_handled) {
+    wm_event_free(win->event_last_handled);
+  }
+  /* Don't store custom data in the last handled event as we don't have control how long this event
+   * will be stored and the referenced data may become invalid (also it's not needed currently). */
+  wm_event_custom_free(event);
+  wm_event_custom_clear(event);
+  win->event_last_handled = event;
+}
+
+static void wm_event_free_last(wmWindow *win)
+{
+  wmEvent *event = static_cast<wmEvent *>(BLI_poptail(&win->event_queue));
+  if (event != nullptr) {
+    wm_event_free(event);
+  }
+}
+
+void wm_event_free_all(wmWindow *win)
+{
+  wmEvent *event;
+  while ((event = static_cast<wmEvent *>(BLI_pophead(&win->event_queue)))) {
+    wm_event_free(event);
+  }
+}
+
+void wm_event_init_from_window(wmWindow *win, wmEvent *event)
+{
+  *event = *(win->eventstate);
+}
+
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Notifiers & Listeners
+ * \{ */
+
+/**
+ * Hash for #wmWindowManager.notifier_queue_set, ignores `window`.
+ */
+static uint note_hash_for_queue_fn(const void *ptr)
+{
+  const wmNotifier *note = static_cast<const wmNotifier *>(ptr);
+  return (BLI_ghashutil_ptrhash(note->reference) ^
+          (note->category | note->data | note->subtype | note->action));
+}
+
+/**
+ * Comparison for #wmWindowManager.notifier_queue_set
+ *
+ * \note This is not an exact equality function as the `window` is ignored.
+ */
+static bool note_cmp_for_queue_fn(const void *a, const void *b)
+{
+  const wmNotifier *note_a = static_cast<const wmNotifier *>(a);
+  const wmNotifier *note_b = static_cast<const wmNotifier *>(b);
+  return !(((note_a->category | note_a->data | note_a->subtype | note_a->action) ==
+            (note_b->category | note_b->data | note_b->subtype | note_b->action)) &&
+           (note_a->reference == note_b->reference));
+}
+
+void WM_event_add_notifier_ex(wmWindowManager *wm, const wmWindow *win, uint type, void *reference)
+{
+  if (wm == nullptr) {
+    /* There may be some cases where e.g. `G_MAIN` is not actually the real current main, but some
+     * other temporary one (e.g. during liboverride processing over linked data), leading to null
+     * window manager.
+     *
+     * This is fairly bad and weak, but unfortunately RNA does not have any way to operate over
+     * another main than G_MAIN currently. */
+    return;
+  }
+
+  wmNotifier note_test = {nullptr};
+
+  note_test.window = win;
+
+  note_test.category = type & NOTE_CATEGORY;
+  note_test.data = type & NOTE_DATA;
+  note_test.subtype = type & NOTE_SUBTYPE;
+  note_test.action = type & NOTE_ACTION;
+  note_test.reference = reference;
+
+  BLI_assert(!wm_notifier_is_clear(&note_test));
+
+  if (wm->notifier_queue_set == nullptr) {
+    wm->notifier_queue_set = BLI_gset_new_ex(
+        note_hash_for_queue_fn, note_cmp_for_queue_fn, __func__, 1024);
+  }
+
+  void **note_p;
+  if (BLI_gset_ensure_p_ex(wm->notifier_queue_set, &note_test, &note_p)) {
+    return;
+  }
+  wmNotifier *note = MEM_new<wmNotifier>(__func__);
+  *note = note_test;
+  *note_p = note;
+  BLI_addtail(&wm->notifier_queue, note);
+}
+
+/* XXX: in future, which notifiers to send to other windows? */
+void WM_event_add_notifier(const bContext *C, uint type, void *reference)
+{
+  WM_event_add_notifier_ex(CTX_wm_manager(C), CTX_wm_window(C), type, reference);
+}
+
+void WM_main_add_notifier(uint type, void *reference)
+{
+  Main *bmain = G_MAIN;
+  wmWindowManager *wm = static_cast<wmWindowManager *>(bmain->wm.first);
+
+  WM_event_add_notifier_ex(wm, nullptr, type, reference);
+}
+
+void WM_main_remove_notifier_reference(const void *reference)
+{
+  Main *bmain = G_MAIN;
+  wmWindowManager *wm = static_cast<wmWindowManager *>(bmain->wm.first);
+
+  if (wm) {
+    LISTBASE_FOREACH_MUTABLE (wmNotifier *, note, &wm->notifier_queue) {
+      if (note->reference == reference) {
+        const bool removed = BLI_gset_remove(wm->notifier_queue_set, note, nullptr);
+        BLI_assert(removed);
+        UNUSED_VARS_NDEBUG(removed);
+        /* Don't remove because this causes problems for #wm_event_do_notifiers
+         * which may be looping on the data (deleting screens). */
+        wm_notifier_clear(note);
+      }
+    }
+
+    /* Remap instead. */
+#if 0
+    if (wm->message_bus) {
+      WM_msg_id_remove(wm->message_bus, reference);
+    }
+#endif
+  }
+}
+
+static void wm_main_remap_assetlist(ID *old_id, ID *new_id, void * /*user_data*/)
+{
+  ED_assetlist_storage_id_remap(old_id, new_id);
+}
+
+static void wm_main_remap_msgbus_notify(ID *old_id, ID *new_id, void *user_data)
+{
+  wmMsgBus *mbus = static_cast<wmMsgBus *>(user_data);
+  if (new_id != nullptr) {
+    WM_msg_id_update(mbus, old_id, new_id);
+  }
+  else {
+    WM_msg_id_remove(mbus, old_id);
+  }
+}
+
+void WM_main_remap_editor_id_reference(const IDRemapper *mappings)
+{
+  Main *bmain = G_MAIN;
+
+  LISTBASE_FOREACH (bScreen *, screen, &bmain->screens) {
+    LISTBASE_FOREACH (ScrArea *, area, &screen->areabase) {
+      LISTBASE_FOREACH (SpaceLink *, sl, &area->spacedata) {
+        ED_spacedata_id_remap(area, sl, mappings);
+      }
+    }
+  }
+
+  BKE_id_remapper_iter(mappings, wm_main_remap_assetlist, nullptr);
+
+  wmWindowManager *wm = static_cast<wmWindowManager *>(bmain->wm.first);
+  if (wm && wm->message_bus) {
+    BKE_id_remapper_iter(mappings, wm_main_remap_msgbus_notify, wm->message_bus);
+  }
+}
+
+static void wm_notifier_clear(wmNotifier *note)
+{
+  /* nullptr the entire notifier, only leaving (`next`, `prev`) members intact. */
+  memset(((char *)note) + sizeof(Link), 0, sizeof(*note) - sizeof(Link));
+  note->category = NOTE_CATEGORY_TAG_CLEARED;
+}
+
+static bool wm_notifier_is_clear(const wmNotifier *note)
+{
+  return note->category == NOTE_CATEGORY_TAG_CLEARED;
+}
+
+void wm_event_do_depsgraph(bContext *C, bool is_after_open_file)
+{
+  wmWindowManager *wm = CTX_wm_manager(C);
+  /* The whole idea of locked interface is to prevent viewport and whatever thread from
+   * modifying the same data. Because of this, we can not perform dependency graph update. */
+  if (wm->is_interface_locked) {
+    return;
+  }
+  /* Combine data-masks so one window doesn't disable UV's in another T26448. */
+  CustomData_MeshMasks win_combine_v3d_datamask = {0};
+  LISTBASE_FOREACH (wmWindow *, win, &wm->windows) {
+    const Scene *scene = WM_window_get_active_scene(win);
+    const bScreen *screen = WM_window_get_active_screen(win);
+
+    ED_view3d_screen_datamask(C, scene, screen, &win_combine_v3d_datamask);
+  }
+  /* Update all the dependency graphs of visible view layers. */
+  LISTBASE_FOREACH (wmWindow *, win, &wm->windows) {
+    Scene *scene = WM_window_get_active_scene(win);
+    ViewLayer *view_layer = WM_window_get_active_view_layer(win);
+    Main *bmain = CTX_data_main(C);
+    /* Copied to set's in scene_update_tagged_recursive() */
+    scene->customdata_mask = win_combine_v3d_datamask;
+    /* XXX, hack so operators can enforce data-masks T26482, GPU render. */
+    CustomData_MeshMasks_update(&scene->customdata_mask, &scene->customdata_mask_modal);
+    /* TODO(sergey): For now all dependency graphs which are evaluated from
+     * workspace are considered active. This will work all fine with "locked"
+     * view layer and time across windows. This is to be granted separately,
+     * and for until then we have to accept ambiguities when object is shared
+     * across visible view layers and has overrides on it. */
+    Depsgraph *depsgraph = BKE_scene_ensure_depsgraph(bmain, scene, view_layer);
+    if (is_after_open_file) {
+      DEG_graph_tag_on_visible_update(depsgraph, true);
+    }
+    DEG_make_active(depsgraph);
+    BKE_scene_graph_update_tagged(depsgraph, bmain);
+  }
+
+  wm_surfaces_do_depsgraph(C);
+}
+
+void wm_event_do_refresh_wm_and_depsgraph(bContext *C)
+{
+  wmWindowManager *wm = CTX_wm_manager(C);
+  /* Cached: editor refresh callbacks now, they get context. */
+  LISTBASE_FOREACH (wmWindow *, win, &wm->windows) {
+    const bScreen *screen = WM_window_get_active_screen(win);
+
+    CTX_wm_window_set(C, win);
+    LISTBASE_FOREACH (ScrArea *, area, &screen->areabase) {
+      if (area->do_refresh) {
+        CTX_wm_area_set(C, area);
+        ED_area_do_refresh(C, area);
+      }
+    }
+  }
+
+  wm_event_do_depsgraph(C, false);
+
+  CTX_wm_window_set(C, nullptr);
+}
+
+static void wm_event_execute_timers(bContext *C)
+{
+  wmWindowManager *wm = CTX_wm_manager(C);
+  if (UNLIKELY(wm == nullptr)) {
+    return;
+  }
+
+  /* Set the first window as context, so that there is some minimal context. This avoids crashes
+   * when calling code that assumes that there is always a window in the context (which many
+   * operators do). */
+  CTX_wm_window_set(C, static_cast<wmWindow *>(wm->windows.first));
+  BLI_timer_execute();
+  CTX_wm_window_set(C, nullptr);
+}
+
+void wm_event_do_notifiers(bContext *C)
+{
+  /* Ensure inside render boundary. */
+  GPU_render_begin();
+
+  /* Run the timer before assigning `wm` in the unlikely case a timer loads a file, see T80028. */
+  wm_event_execute_timers(C);
+
+  wmWindowManager *wm = CTX_wm_manager(C);
+  if (wm == nullptr) {
+    GPU_render_end();
+    return;
+  }
+
+  /* Disable? - Keep for now since its used for window level notifiers. */
+#if 1
+  /* Cache & catch WM level notifiers, such as frame change, scene/screen set. */
+  LISTBASE_FOREACH (wmWindow *, win, &wm->windows) {
+    Scene *scene = WM_window_get_active_scene(win);
+    bool do_anim = false;
+    bool clear_info_stats = false;
+
+    CTX_wm_window_set(C, win);
+
+    LISTBASE_FOREACH_MUTABLE (const wmNotifier *, note, &wm->notifier_queue) {
+      if (note->category == NC_WM) {
+        if (ELEM(note->data, ND_FILEREAD, ND_FILESAVE)) {
+          wm->file_saved = 1;
+          wm_window_title(wm, win);
+        }
+        else if (note->data == ND_DATACHANGED) {
+          wm_window_title(wm, win);
+        }
+        else if (note->data == ND_UNDO) {
+          ED_preview_restart_queue_work(C);
+        }
+      }
+      if (note->window == win) {
+        if (note->category == NC_SCREEN) {
+          if (note->data == ND_WORKSPACE_SET) {
+            WorkSpace *ref_ws = static_cast<WorkSpace *>(note->reference);
+
+            UI_popup_handlers_remove_all(C, &win->modalhandlers);
+
+            WM_window_set_active_workspace(C, win, ref_ws);
+            if (G.debug & G_DEBUG_EVENTS) {
+              printf("%s: Workspace set %p\n", __func__, note->reference);
+            }
+          }
+          else if (note->data == ND_WORKSPACE_DELETE) {
+            WorkSpace *workspace = static_cast<WorkSpace *>(note->reference);
+
+            ED_workspace_delete(
+                workspace, CTX_data_main(C), C, wm); /* XXX: hum, think this over! */
+            if (G.debug & G_DEBUG_EVENTS) {
+              printf("%s: Workspace delete %p\n", __func__, workspace);
+            }
+          }
+          else if (note->data == ND_LAYOUTBROWSE) {
+            bScreen *ref_screen = BKE_workspace_layout_screen_get(
+                static_cast<WorkSpaceLayout *>(note->reference));
+
+            /* Free popup handlers only T35434. */
+            UI_popup_handlers_remove_all(C, &win->modalhandlers);
+
+            ED_screen_change(C, ref_screen); /* XXX: hum, think this over! */
+            if (G.debug & G_DEBUG_EVENTS) {
+              printf("%s: screen set %p\n", __func__, note->reference);
+            }
+          }
+          else if (note->data == ND_LAYOUTDELETE) {
+            WorkSpace *workspace = WM_window_get_active_workspace(win);
+            WorkSpaceLayout *layout = static_cast<WorkSpaceLayout *>(note->reference);
+
+            ED_workspace_layout_delete(workspace, layout, C); /* XXX: hum, think this over! */
+            if (G.debug & G_DEBUG_EVENTS) {
+              printf("%s: screen delete %p\n", __func__, note->reference);
+            }
+          }
+        }
+      }
+
+      if (note->window == win ||
+          (note->window == nullptr && ELEM(note->reference, nullptr, scene))) {
+        if (note->category == NC_SCENE) {
+          if (note->data == ND_FRAME) {
+            do_anim = true;
+          }
+        }
+      }
+      if (ELEM(note->category, NC_SCENE, NC_OBJECT, NC_GEOM, NC_WM)) {
+        clear_info_stats = true;
+      }
+    }
+
+    if (clear_info_stats) {
+      /* Only do once since adding notifiers is slow when there are many. */
+      ViewLayer *view_layer = CTX_data_view_layer(C);
+      ED_info_stats_clear(wm, view_layer);
+      WM_event_add_notifier(C, NC_SPACE | ND_SPACE_INFO, nullptr);
+    }
+
+    if (do_anim) {
+
+      /* XXX: quick frame changes can cause a crash if frame-change and rendering
+       * collide (happens on slow scenes), BKE_scene_graph_update_for_newframe can be called
+       * twice which can depsgraph update the same object at once. */
+      if (G.is_rendering == false) {
+        /* Depsgraph gets called, might send more notifiers. */
+        Depsgraph *depsgraph = CTX_data_depsgraph_pointer(C);
+        ED_update_for_newframe(CTX_data_main(C), depsgraph);
+      }
+    }
+  }
+
+  /* The notifiers are sent without context, to keep it clean. */
+  const wmNotifier *note;
+  while ((note = static_cast<const wmNotifier *>(BLI_pophead(&wm->notifier_queue)))) {
+    if (wm_notifier_is_clear(note)) {
+      MEM_freeN((void *)note);
+      continue;
+    }
+    const bool removed = BLI_gset_remove(wm->notifier_queue_set, note, nullptr);
+    BLI_assert(removed);
+    UNUSED_VARS_NDEBUG(removed);
+    LISTBASE_FOREACH (wmWindow *, win, &wm->windows) {
+      Scene *scene = WM_window_get_active_scene(win);
+      bScreen *screen = WM_window_get_active_screen(win);
+      WorkSpace *workspace = WM_window_get_active_workspace(win);
+
+      /* Filter out notifiers. */
+      if (note->category == NC_SCREEN && note->reference && note->reference != screen &&
+          note->reference != workspace && note->reference != WM_window_get_active_layout(win)) {
+        /* Pass. */
+      }
+      else if (note->category == NC_SCENE && note->reference && note->reference != scene) {
+        /* Pass. */
+      }
+      else {
+        /* XXX context in notifiers? */
+        CTX_wm_window_set(C, win);
+
+#  if 0
+        printf("notifier win %d screen %s cat %x\n",
+               win->winid,
+               win->screen->id.name + 2,
+               note->category);
+#  endif
+        ED_workspace_do_listen(C, note);
+        ED_screen_do_listen(C, note);
+
+        LISTBASE_FOREACH (ARegion *, region, &screen->regionbase) {
+          wmRegionListenerParams region_params{};
+          region_params.window = win;
+          region_params.area = nullptr;
+          region_params.region = region;
+          region_params.scene = scene;
+          region_params.notifier = note;
+
+          ED_region_do_listen(&region_params);
+        }
+
+        ED_screen_areas_iter (win, screen, area) {
+          if ((note->category == NC_SPACE) && note->reference) {
+            /* Filter out notifiers sent to other spaces. RNA sets the reference to the owning ID
+             * though, the screen, so let notifiers through that reference the entire screen. */
+            if (!ELEM(note->reference, area->spacedata.first, screen, scene)) {
+              continue;
+            }
+          }
+          wmSpaceTypeListenerParams area_params{};
+          area_params.window = win;
+          area_params.area = area;
+          area_params.notifier = note;
+          area_params.scene = scene;
+          ED_area_do_listen(&area_params);
+          LISTBASE_FOREACH (ARegion *, region, &area->regionbase) {
+            wmRegionListenerParams region_params{};
+            region_params.window = win;
+            region_params.area = area;
+            region_params.region = region;
+            region_params.scene = scene;
+            region_params.notifier = note;
+            ED_region_do_listen(&region_params);
+          }
+        }
+      }
+    }
+
+    MEM_freeN((void *)note);
+  }
+#endif /* If 1 (postpone disabling for in favor of message-bus), eventually. */
+
+  /* Handle message bus. */
+  {
+    LISTBASE_FOREACH (wmWindow *, win, &wm->windows) {
+      CTX_wm_window_set(C, win);
+      WM_msgbus_handle(wm->message_bus, C);
+    }
+    CTX_wm_window_set(C, nullptr);
+  }
+
+  wm_event_do_refresh_wm_and_depsgraph(C);
+
+  /* Status bar. */
+  if (wm->winactive) {
+    wmWindow *win = wm->winactive;
+    CTX_wm_window_set(C, win);
+    WM_window_cursor_keymap_status_refresh(C, win);
+    CTX_wm_window_set(C, nullptr);
+  }
+
+  /* Auto-run warning. */
+  wm_test_autorun_warning(C);
+
+  GPU_render_end();
+}
+
+static bool wm_event_always_pass(const wmEvent *event)
+{
+  /* Some events we always pass on, to ensure proper communication. */
+  return ISTIMER(event->type) || (event->type == WINDEACTIVATE);
+}
+
+/**
+ * Debug only sanity check for the return value of event handlers. Checks that "always pass" events
+ * don't cause non-passing handler return values, and thus actually pass.
+ *
+ * \param C: Pass in the context to check if it's "window" was cleared.
+ * The event check can't be executed if the handler just loaded a file or closed the window.
+ * (typically identified by `CTX_wm_window(C)` returning null),
+ * because the event will have been freed then.
+ * When null, always check the event (assume the caller knows the event was not freed).
+ */
+BLI_INLINE void wm_event_handler_return_value_check(const bContext *C,
+                                                    const wmEvent *event,
+                                                    const int action)
+{
+#ifndef NDEBUG
+  if (C == nullptr || CTX_wm_window(C)) {
+    BLI_assert_msg(!wm_event_always_pass(event) || (action != WM_HANDLER_BREAK),
+                   "Return value for events that should always pass should never be BREAK.");
+  }
+#endif
+  UNUSED_VARS_NDEBUG(C, event, action);
+}
+
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name UI Handling
+ * \{ */
+
+static int wm_handler_ui_call(bContext *C,
+                              wmEventHandler_UI *handler,
+                              const wmEvent *event,
+                              int always_pass)
+{
+  ScrArea *area = CTX_wm_area(C);
+  ARegion *region = CTX_wm_region(C);
+  ARegion *menu = CTX_wm_menu(C);
+  static bool do_wheel_ui = true;
+  const bool is_wheel = ELEM(event->type, WHEELUPMOUSE, WHEELDOWNMOUSE, MOUSEPAN);
+
+  /* UI code doesn't handle return values - it just always returns break.
+   * to make the #DBL_CLICK conversion work, we just don't send this to UI, except mouse clicks. */
+  if (((handler->head.flag & WM_HANDLER_ACCEPT_DBL_CLICK) == 0) && !ISMOUSE_BUTTON(event->type) &&
+      (event->val == KM_DBL_CLICK)) {
+    return WM_HANDLER_CONTINUE;
+  }
+
+  /* UI is quite aggressive with swallowing events, like scroll-wheel. */
+  /* I realize this is not extremely nice code... when UI gets key-maps it can be maybe smarter. */
+  if (do_wheel_ui == false) {
+    if (is_wheel) {
+      return WM_HANDLER_CONTINUE;
+    }
+    if (wm_event_always_pass(event) == 0) {
+      do_wheel_ui = true;
+    }
+  }
+
+  /* Don't block file-select events. Those are triggered by a separate file browser window.
+   * See T75292. */
+  if (event->type == EVT_FILESELECT) {
+    return WM_UI_HANDLER_CONTINUE;
+  }
+
+  /* We set context to where UI handler came from. */
+  if (handler->context.area) {
+    CTX_wm_area_set(C, handler->context.area);
+  }
+  if (handler->context.region) {
+    CTX_wm_region_set(C, handler->context.region);
+  }
+  if (handler->context.menu) {
+    CTX_wm_menu_set(C, handler->context.menu);
+  }
+
+  int retval = handler->handle_fn(C, event, handler->user_data);
+
+  /* Putting back screen context. */
+  if ((retval != WM_UI_HANDLER_BREAK) || always_pass) {
+    CTX_wm_area_set(C, area);
+    CTX_wm_region_set(C, region);
+    CTX_wm_menu_set(C, menu);
+  }
+  else {
+    /* This special cases is for areas and regions that get removed. */
+    CTX_wm_area_set(C, nullptr);
+    CTX_wm_region_set(C, nullptr);
+    CTX_wm_menu_set(C, nullptr);
+  }
+
+  if (retval == WM_UI_HANDLER_BREAK) {
+    return WM_HANDLER_BREAK;
+  }
+
+  /* Event not handled in UI, if wheel then we temporarily disable it. */
+  if (is_wheel) {
+    do_wheel_ui = false;
+  }
+
+  return WM_HANDLER_CONTINUE;
+}
+
+void wm_event_handler_ui_cancel_ex(bContext *C,
+                                   wmWindow *win,
+                                   ARegion *region,
+                                   bool reactivate_button)
+{
+  if (!region) {
+    return;
+  }
+
+  LISTBASE_FOREACH_MUTABLE (wmEventHandler *, handler_base, &region->handlers) {
+    if (handler_base->type == WM_HANDLER_TYPE_UI) {
+      wmEventHandler_UI *handler = (wmEventHandler_UI *)handler_base;
+      BLI_assert(handler->handle_fn != nullptr);
+      wmEvent event;
+      wm_event_init_from_window(win, &event);
+      event.type = EVT_BUT_CANCEL;
+      event.val = reactivate_button ? 0 : 1;
+      event.flag = (eWM_EventFlag)0;
+      handler->handle_fn(C, &event, handler->user_data);
+    }
+  }
+}
+
+static void wm_event_handler_ui_cancel(bContext *C)
+{
+  wmWindow *win = CTX_wm_window(C);
+  ARegion *region = CTX_wm_region(C);
+  wm_event_handler_ui_cancel_ex(C, win, region, true);
+}
+
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name WM Reports
+ *
+ * Access to #wmWindowManager.reports
+ * \{ */
+
+void WM_report_banner_show(void)
+{
+  wmWindowManager *wm = static_cast<wmWindowManager *>(G_MAIN->wm.first);
+  ReportList *wm_reports = &wm->reports;
+
+  /* After adding reports to the global list, reset the report timer. */
+  WM_event_remove_timer(wm, nullptr, wm_reports->reporttimer);
+
+  /* Records time since last report was added. */
+  wm_reports->reporttimer = WM_event_add_timer(wm, wm->winactive, TIMERREPORT, 0.05);
+
+  ReportTimerInfo *rti = MEM_cnew<ReportTimerInfo>(__func__);
+  wm_reports->reporttimer->customdata = rti;
+}
+
+void WM_report_banners_cancel(Main *bmain)
+{
+  wmWindowManager *wm = static_cast<wmWindowManager *>(bmain->wm.first);
+  BKE_reports_clear(&wm->reports);
+  WM_event_remove_timer(wm, nullptr, wm->reports.reporttimer);
+}
+
+#ifdef WITH_INPUT_NDOF
+void WM_ndof_deadzone_set(float deadzone)
+{
+  GHOST_setNDOFDeadZone(deadzone);
+}
+#endif
+
+static void wm_add_reports(ReportList *reports)
+{
+  /* If the caller owns them, handle this. */
+  if (reports->list.first && (reports->flag & RPT_OP_HOLD) == 0) {
+    wmWindowManager *wm = static_cast<wmWindowManager *>(G_MAIN->wm.first);
+
+    /* Add reports to the global list, otherwise they are not seen. */
+    BLI_movelisttolist(&wm->reports.list, &reports->list);
+
+    WM_report_banner_show();
+  }
+}
+
+void WM_report(eReportType type, const char *message)
+{
+  ReportList reports;
+  BKE_reports_init(&reports, RPT_STORE);
+  BKE_report(&reports, type, message);
+
+  wm_add_reports(&reports);
+
+  BKE_reports_clear(&reports);
+}
+
+void WM_reportf(eReportType type, const char *format, ...)
+{
+  va_list args;
+
+  DynStr *ds = BLI_dynstr_new();
+  va_start(args, format);
+  BLI_dynstr_vappendf(ds, format, args);
+  va_end(args);
+
+  char *str = BLI_dynstr_get_cstring(ds);
+  WM_report(type, str);
+  MEM_freeN(str);
+
+  BLI_dynstr_free(ds);
+}
+
+//Operators
 
 void WM_event_add_fileselect(bContext *C, wmOperator *op)
 {
