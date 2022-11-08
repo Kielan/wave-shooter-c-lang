@@ -1,3 +1,164 @@
+wmEventHandler_Keymap *WM_event_add_keymap_handler_v2d_mask(ListBase *handlers, wmKeyMap *keymap)
+{
+  return WM_event_add_keymap_handler_poll(handlers, keymap, handler_region_v2d_mask_test);
+}
+
+void WM_event_remove_keymap_handler(ListBase *handlers, wmKeyMap *keymap)
+{
+  LISTBASE_FOREACH (wmEventHandler *, handler_base, handlers) {
+    if (handler_base->type == WM_HANDLER_TYPE_KEYMAP) {
+      wmEventHandler_Keymap *handler = (wmEventHandler_Keymap *)handler_base;
+      if (handler->keymap == keymap) {
+        BLI_remlink(handlers, handler);
+        wm_event_free_handler(&handler->head);
+        break;
+      }
+    }
+  }
+}
+
+void WM_event_set_keymap_handler_post_callback(wmEventHandler_Keymap *handler,
+                                               void(keymap_tag)(wmKeyMap *keymap,
+                                                                wmKeyMapItem *kmi,
+                                                                void *user_data),
+                                               void *user_data)
+{
+  handler->post.post_fn = keymap_tag;
+  handler->post.user_data = user_data;
+}
+
+wmEventHandler_UI *WM_event_add_ui_handler(const bContext *C,
+                                           ListBase *handlers,
+                                           wmUIHandlerFunc handle_fn,
+                                           wmUIHandlerRemoveFunc remove_fn,
+                                           void *user_data,
+                                           const eWM_EventHandlerFlag flag)
+{
+  wmEventHandler_UI *handler = MEM_cnew<wmEventHandler_UI>(__func__);
+  handler->head.type = WM_HANDLER_TYPE_UI;
+  handler->handle_fn = handle_fn;
+  handler->remove_fn = remove_fn;
+  handler->user_data = user_data;
+  if (C) {
+    handler->context.area = CTX_wm_area(C);
+    handler->context.region = CTX_wm_region(C);
+    handler->context.menu = CTX_wm_menu(C);
+  }
+  else {
+    handler->context.area = nullptr;
+    handler->context.region = nullptr;
+    handler->context.menu = nullptr;
+  }
+
+  BLI_assert((flag & WM_HANDLER_DO_FREE) == 0);
+  handler->head.flag = flag;
+
+  BLI_addhead(handlers, handler);
+
+  return handler;
+}
+
+void WM_event_remove_ui_handler(ListBase *handlers,
+                                wmUIHandlerFunc handle_fn,
+                                wmUIHandlerRemoveFunc remove_fn,
+                                void *user_data,
+                                const bool postpone)
+{
+  LISTBASE_FOREACH (wmEventHandler *, handler_base, handlers) {
+    if (handler_base->type == WM_HANDLER_TYPE_UI) {
+      wmEventHandler_UI *handler = (wmEventHandler_UI *)handler_base;
+      if ((handler->handle_fn == handle_fn) && (handler->remove_fn == remove_fn) &&
+          (handler->user_data == user_data)) {
+        /* Handlers will be freed in #wm_handlers_do(). */
+        if (postpone) {
+          handler->head.flag |= WM_HANDLER_DO_FREE;
+        }
+        else {
+          BLI_remlink(handlers, handler);
+          wm_event_free_handler(&handler->head);
+        }
+        break;
+      }
+    }
+  }
+}
+
+void WM_event_free_ui_handler_all(bContext *C,
+                                  ListBase *handlers,
+                                  wmUIHandlerFunc handle_fn,
+                                  wmUIHandlerRemoveFunc remove_fn)
+{
+  LISTBASE_FOREACH_MUTABLE (wmEventHandler *, handler_base, handlers) {
+    if (handler_base->type == WM_HANDLER_TYPE_UI) {
+      wmEventHandler_UI *handler = (wmEventHandler_UI *)handler_base;
+      if ((handler->handle_fn == handle_fn) && (handler->remove_fn == remove_fn)) {
+        remove_fn(C, handler->user_data);
+        BLI_remlink(handlers, handler);
+        wm_event_free_handler(&handler->head);
+      }
+    }
+  }
+}
+
+wmEventHandler_Dropbox *WM_event_add_dropbox_handler(ListBase *handlers, ListBase *dropboxes)
+{
+  /* Only allow same dropbox once. */
+  LISTBASE_FOREACH (wmEventHandler *, handler_base, handlers) {
+    if (handler_base->type == WM_HANDLER_TYPE_DROPBOX) {
+      wmEventHandler_Dropbox *handler = (wmEventHandler_Dropbox *)handler_base;
+      if (handler->dropboxes == dropboxes) {
+        return handler;
+      }
+    }
+  }
+
+  wmEventHandler_Dropbox *handler = MEM_cnew<wmEventHandler_Dropbox>(__func__);
+  handler->head.type = WM_HANDLER_TYPE_DROPBOX;
+
+  /* Dropbox stored static, no free or copy. */
+  handler->dropboxes = dropboxes;
+  BLI_addhead(handlers, handler);
+
+  return handler;
+}
+
+void WM_event_remove_area_handler(ListBase *handlers, void *area)
+{
+  /* XXX(@ton): solution works, still better check the real cause. */
+
+  LISTBASE_FOREACH_MUTABLE (wmEventHandler *, handler_base, handlers) {
+    if (handler_base->type == WM_HANDLER_TYPE_UI) {
+      wmEventHandler_UI *handler = (wmEventHandler_UI *)handler_base;
+      if (handler->context.area == area) {
+        BLI_remlink(handlers, handler);
+        wm_event_free_handler(handler_base);
+      }
+    }
+  }
+}
+
+wmOperator *WM_operator_find_modal_by_type(wmWindow *win, const wmOperatorType *ot)
+{
+  LISTBASE_FOREACH (wmEventHandler *, handler_base, &win->modalhandlers) {
+    if (handler_base->type != WM_HANDLER_TYPE_OP) {
+      continue;
+    }
+    wmEventHandler_Op *handler = (wmEventHandler_Op *)handler_base;
+    if (handler->op && handler->op->type == ot) {
+      return handler->op;
+    }
+  }
+  return nullptr;
+}
+
+#if 0
+static void WM_event_remove_handler(ListBase *handlers, wmEventHandler *handler)
+{
+  BLI_remlink(handlers, handler);
+  wm_event_free_handler(handler);
+}
+#endif
+
 void WM_event_add_mousemove(wmWindow *win)
 {
   win->addmousemove = 1;
