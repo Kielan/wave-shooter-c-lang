@@ -613,11 +613,8 @@ BLI_INLINE void wm_event_handler_return_value_check(const bContext *C,
   UNUSED_VARS_NDEBUG(C, event, action);
 }
 
-/** \} */
-
 /* -------------------------------------------------------------------- */
 /** \name UI Handling
- * \{ */
 
 static int wm_handler_ui_call(bContext *C,
                               wmEventHandler_UI *handler,
@@ -722,13 +719,11 @@ static void wm_event_handler_ui_cancel(bContext *C)
   wm_event_handler_ui_cancel_ex(C, win, region, true);
 }
 
-/** \} */
-
 /* -------------------------------------------------------------------- */
-/** \name WM Reports
+/* WM Reports
  *
  * Access to #wmWindowManager.reports
- * \{ */
+ */
 
 void WM_report_banner_show(void)
 {
@@ -799,7 +794,634 @@ void WM_reportf(eReportType type, const char *format, ...)
   BLI_dynstr_free(ds);
 }
 
-//Operators
+/* -------------------------------------------------------------------- */
+/** Operator Logic
+*/
+
+bool WM_operator_poll(bContext *C, wmOperatorType *ot)
+{
+
+  LISTBASE_FOREACH (wmOperatorTypeMacro *, macro, &ot->macro) {
+    wmOperatorType *ot_macro = WM_operatortype_find(macro->idname, false);
+
+    if (!WM_operator_poll(C, ot_macro)) {
+      return false;
+    }
+  }
+
+  /* Python needs operator type, so we added exception for it. */
+  if (ot->pyop_poll) {
+    return ot->pyop_poll(C, ot);
+  }
+  if (ot->poll) {
+    return ot->poll(C);
+  }
+
+  return true;
+}
+
+bool WM_operator_poll_context(bContext *C, wmOperatorType *ot, short context)
+{
+  /* Sets up the new context and calls #wm_operator_invoke() with poll_only. */
+  return wm_operator_call_internal(
+      C, ot, nullptr, nullptr, static_cast<wmOperatorCallContext>(context), true, nullptr);
+}
+
+bool WM_operator_check_ui_empty(wmOperatorType *ot)
+{
+  if (ot->macro.first != nullptr) {
+    /* For macros, check all have exec() we can call. */
+    LISTBASE_FOREACH (wmOperatorTypeMacro *, macro, &ot->macro) {
+      wmOperatorType *otm = WM_operatortype_find(macro->idname, false);
+      if (otm && !WM_operator_check_ui_empty(otm)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /* Assume a UI callback will draw something. */
+  if (ot->ui) {
+    return false;
+  }
+
+  PointerRNA ptr;
+  WM_operator_properties_create_ptr(&ptr, ot);
+  RNA_STRUCT_BEGIN (&ptr, prop) {
+    int flag = RNA_property_flag(prop);
+    if (flag & PROP_HIDDEN) {
+      continue;
+    }
+    return false;
+  }
+  RNA_STRUCT_END;
+  return true;
+}
+
+void WM_operator_region_active_win_set(bContext *C)
+{
+  ScrArea *area = CTX_wm_area(C);
+  if (area) {
+    ARegion *region = CTX_wm_region(C);
+    if (region && region->regiontype == RGN_TYPE_WINDOW) {
+      area->region_active_win = BLI_findindex(&area->regionbase, region);
+    }
+  }
+}
+
+/**
+ * \param caller_owns_reports: True when called from Python.
+ */
+static void wm_operator_reports(bContext *C, wmOperator *op, int retval, bool caller_owns_reports)
+{
+  if (G.background == 0 && caller_owns_reports == false) { /* Popup. */
+    if (op->reports->list.first) {
+      /* FIXME: temp setting window, see other call to #UI_popup_menu_reports for why. */
+      wmWindow *win_prev = CTX_wm_window(C);
+      ScrArea *area_prev = CTX_wm_area(C);
+      ARegion *region_prev = CTX_wm_region(C);
+
+      if (win_prev == nullptr) {
+        CTX_wm_window_set(C, static_cast<wmWindow *>(CTX_wm_manager(C)->windows.first));
+      }
+
+      UI_popup_menu_reports(C, op->reports);
+
+      CTX_wm_window_set(C, win_prev);
+      CTX_wm_area_set(C, area_prev);
+      CTX_wm_region_set(C, region_prev);
+    }
+  }
+
+  if (retval & OPERATOR_FINISHED) {
+    CLOG_STR_INFO_N(WM_LOG_OPERATORS, 1, WM_operator_pystring(C, op, false, true));
+
+    if (caller_owns_reports == false) {
+      BKE_reports_print(op->reports, RPT_DEBUG); /* Print out reports to console. */
+    }
+
+    if (op->type->flag & OPTYPE_REGISTER) {
+      if (G.background == 0) { /* Ends up printing these in the terminal, gets annoying. */
+        /* Report the python string representation of the operator. */
+        char *buf = WM_operator_pystring(C, op, false, true);
+        BKE_report(CTX_wm_reports(C), RPT_OPERATOR, buf);
+        MEM_freeN(buf);
+      }
+    }
+  }
+
+  /* Refresh Info Editor with reports immediately, even if op returned #OPERATOR_CANCELLED. */
+  if ((retval & OPERATOR_CANCELLED) && !BLI_listbase_is_empty(&op->reports->list)) {
+    WM_event_add_notifier(C, NC_SPACE | ND_SPACE_INFO_REPORT, nullptr);
+  }
+  /* If the caller owns them, handle this. */
+  wm_add_reports(op->reports);
+}
+
+/**
+ * This function is mainly to check that the rules for freeing
+ * an operator are kept in sync.
+ */
+static bool wm_operator_register_check(wmWindowManager *wm, wmOperatorType *ot)
+{
+  /* Check undo flag here since undo operators are also added to the list,
+   * to support checking if the same operator is run twice. */
+  return wm && (wm->op_undo_depth == 0) && (ot->flag & (OPTYPE_REGISTER | OPTYPE_UNDO));
+}
+
+static void wm_operator_finished(bContext *C, wmOperator *op, const bool repeat, const bool store)
+{
+  wmWindowManager *wm = CTX_wm_manager(C);
+  enum {
+    NOP,
+    SET,
+    CLEAR,
+  } hud_status = NOP;
+
+  op->customdata = nullptr;
+
+  if (store) {
+    WM_operator_last_properties_store(op);
+  }
+
+  /* We don't want to do undo pushes for operators that are being
+   * called from operators that already do an undo push. Usually
+   * this will happen for python operators that call C operators. */
+  if (wm->op_undo_depth == 0) {
+    if (op->type->flag & OPTYPE_UNDO) {
+      ED_undo_push_op(C, op);
+      if (repeat == 0) {
+        hud_status = CLEAR;
+      }
+    }
+    else if (op->type->flag & OPTYPE_UNDO_GROUPED) {
+      ED_undo_grouped_push_op(C, op);
+      if (repeat == 0) {
+        hud_status = CLEAR;
+      }
+    }
+  }
+
+  if (repeat == 0) {
+    if (G.debug & G_DEBUG_WM) {
+      char *buf = WM_operator_pystring(C, op, false, true);
+      BKE_report(CTX_wm_reports(C), RPT_OPERATOR, buf);
+      MEM_freeN(buf);
+    }
+
+    if (wm_operator_register_check(wm, op->type)) {
+      /* Take ownership of reports (in case python provided own). */
+      op->reports->flag |= RPT_FREE;
+
+      wm_operator_register(C, op);
+      WM_operator_region_active_win_set(C);
+
+      if (WM_operator_last_redo(C) == op) {
+        /* Show the redo panel. */
+        hud_status = SET;
+      }
+    }
+    else {
+      WM_operator_free(op);
+    }
+  }
+
+  if (hud_status != NOP) {
+    if (hud_status == SET) {
+      ScrArea *area = CTX_wm_area(C);
+      if (area && ((area->flag & AREA_FLAG_OFFSCREEN) == 0)) {
+        ED_area_type_hud_ensure(C, area);
+      }
+    }
+    else if (hud_status == CLEAR) {
+      ED_area_type_hud_clear(wm, nullptr);
+    }
+    else {
+      BLI_assert_unreachable();
+    }
+  }
+}
+
+/**
+ * \param repeat: When true, it doesn't register again, nor does it free.
+ */
+static int wm_operator_exec(bContext *C, wmOperator *op, const bool repeat, const bool store)
+{
+  wmWindowManager *wm = CTX_wm_manager(C);
+  int retval = OPERATOR_CANCELLED;
+
+  CTX_wm_operator_poll_msg_clear(C);
+
+  if (op == nullptr || op->type == nullptr) {
+    return retval;
+  }
+
+  if (0 == WM_operator_poll(C, op->type)) {
+    return retval;
+  }
+
+  if (op->type->exec) {
+    if (op->type->flag & OPTYPE_UNDO) {
+      wm->op_undo_depth++;
+    }
+
+    retval = op->type->exec(C, op);
+    OPERATOR_RETVAL_CHECK(retval);
+
+    if (op->type->flag & OPTYPE_UNDO && CTX_wm_manager(C) == wm) {
+      wm->op_undo_depth--;
+    }
+  }
+
+  /* XXX(@mont29): Disabled the repeat check to address part 2 of T31840.
+   * Carefully checked all calls to wm_operator_exec and WM_operator_repeat, don't see any reason
+   * why this was needed, but worth to note it in case something turns bad. */
+  if (retval & (OPERATOR_FINISHED | OPERATOR_CANCELLED) /* && repeat == 0 */) {
+    wm_operator_reports(C, op, retval, false);
+  }
+
+  if (retval & OPERATOR_FINISHED) {
+    wm_operator_finished(C, op, repeat, store && wm->op_undo_depth == 0);
+  }
+  else if (repeat == 0) {
+    /* WARNING: modal from exec is bad practice, but avoid crashing. */
+    if (retval & (OPERATOR_FINISHED | OPERATOR_CANCELLED)) {
+      WM_operator_free(op);
+    }
+  }
+
+  return retval | OPERATOR_HANDLED;
+}
+
+/**
+ * Simply calls exec with basic checks.
+ */
+static int wm_operator_exec_notest(bContext *C, wmOperator *op)
+{
+  int retval = OPERATOR_CANCELLED;
+
+  if (op == nullptr || op->type == nullptr || op->type->exec == nullptr) {
+    return retval;
+  }
+
+  retval = op->type->exec(C, op);
+  OPERATOR_RETVAL_CHECK(retval);
+
+  return retval;
+}
+
+int WM_operator_call_ex(bContext *C, wmOperator *op, const bool store)
+{
+  return wm_operator_exec(C, op, false, store);
+}
+
+int WM_operator_call(bContext *C, wmOperator *op)
+{
+  return WM_operator_call_ex(C, op, false);
+}
+
+int WM_operator_call_notest(bContext *C, wmOperator *op)
+{
+  return wm_operator_exec_notest(C, op);
+}
+
+int WM_operator_repeat(bContext *C, wmOperator *op)
+{
+  const int op_flag = OP_IS_REPEAT;
+  op->flag |= op_flag;
+  const int ret = wm_operator_exec(C, op, true, true);
+  op->flag &= ~op_flag;
+  return ret;
+}
+int WM_operator_repeat_last(bContext *C, wmOperator *op)
+{
+  const int op_flag = OP_IS_REPEAT_LAST;
+  op->flag |= op_flag;
+  const int ret = wm_operator_exec(C, op, true, true);
+  op->flag &= ~op_flag;
+  return ret;
+}
+bool WM_operator_repeat_check(const bContext * /*C*/, wmOperator *op)
+{
+  if (op->type->exec != nullptr) {
+    return true;
+  }
+  if (op->opm) {
+    /* For macros, check all have exec() we can call. */
+    LISTBASE_FOREACH (wmOperatorTypeMacro *, macro, &op->opm->type->macro) {
+      wmOperatorType *otm = WM_operatortype_find(macro->idname, false);
+      if (otm && otm->exec == nullptr) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  return false;
+}
+
+bool WM_operator_is_repeat(const bContext *C, const wmOperator *op)
+{
+  /* May be in the operators list or not. */
+  wmOperator *op_prev;
+  if (op->prev == nullptr && op->next == nullptr) {
+    wmWindowManager *wm = CTX_wm_manager(C);
+    op_prev = static_cast<wmOperator *>(wm->operators.last);
+  }
+  else {
+    op_prev = op->prev;
+  }
+  return (op_prev && (op->type == op_prev->type));
+}
+
+static wmOperator *wm_operator_create(wmWindowManager *wm,
+                                      wmOperatorType *ot,
+                                      PointerRNA *properties,
+                                      ReportList *reports)
+{
+  /* Operator-type names are static still. pass to allocation name for debugging. */
+  wmOperator *op = MEM_cnew<wmOperator>(ot->idname);
+
+  /* Adding new operator could be function, only happens here now. */
+  op->type = ot;
+  BLI_strncpy(op->idname, ot->idname, OP_MAX_TYPENAME);
+
+  /* Initialize properties, either copy or create. */
+  op->ptr = MEM_cnew<PointerRNA>("wmOperatorPtrRNA");
+  if (properties && properties->data) {
+    op->properties = IDP_CopyProperty(static_cast<const IDProperty *>(properties->data));
+  }
+  else {
+    IDPropertyTemplate val = {0};
+    op->properties = IDP_New(IDP_GROUP, &val, "wmOperatorProperties");
+  }
+  RNA_pointer_create(&wm->id, ot->srna, op->properties, op->ptr);
+
+  /* Initialize error reports. */
+  if (reports) {
+    op->reports = reports; /* Must be initialized already. */
+  }
+  else {
+    op->reports = MEM_cnew<ReportList>("wmOperatorReportList");
+    BKE_reports_init(op->reports, RPT_STORE | RPT_FREE);
+  }
+
+  /* Recursive filling of operator macro list. */
+  if (ot->macro.first) {
+    static wmOperator *motherop = nullptr;
+    int root = 0;
+
+    /* Ensure all ops are in execution order in 1 list. */
+    if (motherop == nullptr) {
+      motherop = op;
+      root = 1;
+    }
+
+    /* If properties exist, it will contain everything needed. */
+    if (properties) {
+      wmOperatorTypeMacro *otmacro = static_cast<wmOperatorTypeMacro *>(ot->macro.first);
+
+      RNA_STRUCT_BEGIN (properties, prop) {
+
+        if (otmacro == nullptr) {
+          break;
+        }
+
+        /* Skip invalid properties. */
+        if (STREQ(RNA_property_identifier(prop), otmacro->idname)) {
+          wmOperatorType *otm = WM_operatortype_find(otmacro->idname, false);
+          PointerRNA someptr = RNA_property_pointer_get(properties, prop);
+          wmOperator *opm = wm_operator_create(wm, otm, &someptr, nullptr);
+
+          IDP_ReplaceGroupInGroup(opm->properties, otmacro->properties);
+
+          BLI_addtail(&motherop->macro, opm);
+          opm->opm = motherop; /* Pointer to mom, for modal(). */
+
+          otmacro = otmacro->next;
+        }
+      }
+      RNA_STRUCT_END;
+    }
+    else {
+      LISTBASE_FOREACH (wmOperatorTypeMacro *, macro, &ot->macro) {
+        wmOperatorType *otm = WM_operatortype_find(macro->idname, false);
+        wmOperator *opm = wm_operator_create(wm, otm, macro->ptr, nullptr);
+
+        BLI_addtail(&motherop->macro, opm);
+        opm->opm = motherop; /* Pointer to mom, for modal(). */
+      }
+    }
+
+    if (root) {
+      motherop = nullptr;
+    }
+  }
+
+  WM_operator_properties_sanitize(op->ptr, false);
+
+  return op;
+}
+
+/**
+ * This isn't very nice but needed to redraw gizmos which are hidden while tweaking,
+ * See #WM_GIZMOGROUPTYPE_DELAY_REFRESH_FOR_TWEAK for details.
+ */
+static void wm_region_tag_draw_on_gizmo_delay_refresh_for_tweak(wmWindow *win)
+{
+
+  bScreen *screen = WM_window_get_active_screen(win);
+  /* Unlikely but not impossible as this runs after events have been handled. */
+  if (UNLIKELY(screen == nullptr)) {
+    return;
+  }
+  ED_screen_areas_iter (win, screen, area) {
+    LISTBASE_FOREACH (ARegion *, region, &area->regionbase) {
+      if (region->gizmo_map != nullptr) {
+        if (WM_gizmomap_tag_delay_refresh_for_tweak_check(region->gizmo_map)) {
+          ED_region_tag_redraw(region);
+        }
+      }
+    }
+  }
+}
+
+static void wm_region_mouse_co(bContext *C, wmEvent *event)
+{
+  ARegion *region = CTX_wm_region(C);
+  if (region) {
+    /* Compatibility convention. */
+    event->mval[0] = event->xy[0] - region->winrct.xmin;
+    event->mval[1] = event->xy[1] - region->winrct.ymin;
+  }
+  else {
+    /* These values are invalid (avoid odd behavior by relying on old #wmEvent.mval values). */
+    event->mval[0] = -1;
+    event->mval[1] = -1;
+  }
+}
+
+/**
+ * Also used for exec when 'event' is nullptr.
+ */
+static int wm_operator_invoke(bContext *C,
+                              wmOperatorType *ot,
+                              const wmEvent *event,
+                              PointerRNA *properties,
+                              ReportList *reports,
+                              const bool poll_only,
+                              bool use_last_properties)
+{
+  int retval = OPERATOR_PASS_THROUGH;
+
+  /* This is done because complicated setup is done to call this function
+   * that is better not duplicated. */
+  if (poll_only) {
+    return WM_operator_poll(C, ot);
+  }
+
+  if (WM_operator_poll(C, ot)) {
+    wmWindowManager *wm = CTX_wm_manager(C);
+
+    /* If `reports == nullptr`, they'll be initialized. */
+    wmOperator *op = wm_operator_create(wm, ot, properties, reports);
+
+    const bool is_nested_call = (wm->op_undo_depth != 0);
+
+    if (event != nullptr) {
+      op->flag |= OP_IS_INVOKE;
+    }
+
+    /* Initialize setting from previous run. */
+    if (!is_nested_call && use_last_properties) { /* Not called by a Python script. */
+      WM_operator_last_properties_init(op);
+    }
+
+    if ((event == nullptr) || (event->type != MOUSEMOVE)) {
+      CLOG_INFO(WM_LOG_HANDLERS,
+                2,
+                "handle evt %d win %p op %s",
+                event ? event->type : 0,
+                CTX_wm_screen(C)->active_region,
+                ot->idname);
+    }
+
+    if (op->type->invoke && event) {
+      /* Make a copy of the event as it's `const` and the #wmEvent.mval to be written into. */
+      wmEvent event_temp = *event;
+      wm_region_mouse_co(C, &event_temp);
+
+      if (op->type->flag & OPTYPE_UNDO) {
+        wm->op_undo_depth++;
+      }
+
+      retval = op->type->invoke(C, op, &event_temp);
+      OPERATOR_RETVAL_CHECK(retval);
+
+      if (op->type->flag & OPTYPE_UNDO && CTX_wm_manager(C) == wm) {
+        wm->op_undo_depth--;
+      }
+    }
+    else if (op->type->exec) {
+      if (op->type->flag & OPTYPE_UNDO) {
+        wm->op_undo_depth++;
+      }
+
+      retval = op->type->exec(C, op);
+      OPERATOR_RETVAL_CHECK(retval);
+
+      if (op->type->flag & OPTYPE_UNDO && CTX_wm_manager(C) == wm) {
+        wm->op_undo_depth--;
+      }
+    }
+    else {
+      /* Debug, important to leave a while, should never happen. */
+      CLOG_ERROR(WM_LOG_OPERATORS, "invalid operator call '%s'", op->idname);
+    }
+
+    /* NOTE: if the report is given as an argument then assume the caller will deal with displaying
+     * them currently Python only uses this. */
+    if (!(retval & OPERATOR_HANDLED) && (retval & (OPERATOR_FINISHED | OPERATOR_CANCELLED))) {
+      /* Only show the report if the report list was not given in the function. */
+      wm_operator_reports(C, op, retval, (reports != nullptr));
+    }
+
+    if (retval & OPERATOR_HANDLED) {
+      /* Do nothing, #wm_operator_exec() has been called somewhere. */
+    }
+    else if (retval & OPERATOR_FINISHED) {
+      const bool store = !is_nested_call && use_last_properties;
+      wm_operator_finished(C, op, false, store);
+    }
+    else if (retval & OPERATOR_RUNNING_MODAL) {
+      /* Take ownership of reports (in case python provided own). */
+      op->reports->flag |= RPT_FREE;
+
+      /* Grab cursor during blocking modal operators (X11)
+       * Also check for macro. */
+      if (ot->flag & OPTYPE_BLOCKING || (op->opm && op->opm->type->flag & OPTYPE_BLOCKING)) {
+        int bounds[4] = {-1, -1, -1, -1};
+        int wrap = WM_CURSOR_WRAP_NONE;
+
+        if (event && (U.uiflag & USER_CONTINUOUS_MOUSE)) {
+          const wmOperator *op_test = op->opm ? op->opm : op;
+          const wmOperatorType *ot_test = op_test->type;
+          if ((ot_test->flag & OPTYPE_GRAB_CURSOR_XY) ||
+              (op_test->flag & OP_IS_MODAL_GRAB_CURSOR)) {
+            wrap = WM_CURSOR_WRAP_XY;
+          }
+          else if (ot_test->flag & OPTYPE_GRAB_CURSOR_X) {
+            wrap = WM_CURSOR_WRAP_X;
+          }
+          else if (ot_test->flag & OPTYPE_GRAB_CURSOR_Y) {
+            wrap = WM_CURSOR_WRAP_Y;
+          }
+        }
+
+        if (wrap) {
+          const rcti *winrect = nullptr;
+          ARegion *region = CTX_wm_region(C);
+          ScrArea *area = CTX_wm_area(C);
+
+          /* Wrap only in X for header. */
+          if (region && RGN_TYPE_IS_HEADER_ANY(region->regiontype)) {
+            wrap = WM_CURSOR_WRAP_X;
+          }
+
+          if (region && region->regiontype == RGN_TYPE_WINDOW &&
+              BLI_rcti_isect_pt_v(&region->winrct, event->xy)) {
+            winrect = &region->winrct;
+          }
+          else if (area && BLI_rcti_isect_pt_v(&area->totrct, event->xy)) {
+            winrect = &area->totrct;
+          }
+
+          if (winrect) {
+            bounds[0] = winrect->xmin;
+            bounds[1] = winrect->ymax;
+            bounds[2] = winrect->xmax;
+            bounds[3] = winrect->ymin;
+          }
+        }
+
+        WM_cursor_grab_enable(CTX_wm_window(C), wrap, false, bounds);
+      }
+
+      /* Cancel UI handlers, typically tool-tips that can hang around
+       * while dragging the view or worse, that stay there permanently
+       * after the modal operator has swallowed all events and passed
+       * none to the UI handler. */
+      wm_event_handler_ui_cancel(C);
+    }
+    else {
+      WM_operator_free(op);
+    }
+  }
+
+  return retval;
+}
+
+//operator call internal
 
 void WM_event_add_fileselect(bContext *C, wmOperator *op)
 {
@@ -879,6 +1501,8 @@ void WM_event_add_fileselect(bContext *C, wmOperator *op)
     CTX_wm_window_set(C, ctx_win);
   }
 }
+
+
 
 /* -------------------------------------------------------------------- */
 /** \name Modal Operator Handling
