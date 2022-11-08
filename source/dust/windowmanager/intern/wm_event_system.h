@@ -1,3 +1,168 @@
+/* -------------------------------------------------------------------- */
+/** name Ghost Event Conversion
+
+/**
+ * return The WM enum for key or #EVENT_NONE (which should be ignored).
+ */
+static int convert_key(GHOST_TKey key)
+{
+  if (key >= GHOST_kKeyA && key <= GHOST_kKeyZ) {
+    return (EVT_AKEY + (int(key) - GHOST_kKeyA));
+  }
+  if (key >= GHOST_kKey0 && key <= GHOST_kKey9) {
+    return (EVT_ZEROKEY + (int(key) - GHOST_kKey0));
+  }
+  if (key >= GHOST_kKeyNumpad0 && key <= GHOST_kKeyNumpad9) {
+    return (EVT_PAD0 + (int(key) - GHOST_kKeyNumpad0));
+  }
+  if (key >= GHOST_kKeyF1 && key <= GHOST_kKeyF24) {
+    return (EVT_F1KEY + (int(key) - GHOST_kKeyF1));
+  }
+
+  switch (key) {
+    case GHOST_kKeyBackSpace:
+      return EVT_BACKSPACEKEY;
+    case GHOST_kKeyTab:
+      return EVT_TABKEY;
+    case GHOST_kKeyLinefeed:
+      return EVT_LINEFEEDKEY;
+    case GHOST_kKeyClear:
+      return EVENT_NONE;
+    case GHOST_kKeyEnter:
+      return EVT_RETKEY;
+
+    case GHOST_kKeyEsc:
+      return EVT_ESCKEY;
+    case GHOST_kKeySpace:
+      return EVT_SPACEKEY;
+    case GHOST_kKeyQuote:
+      return EVT_QUOTEKEY;
+    case GHOST_kKeyComma:
+      return EVT_COMMAKEY;
+    case GHOST_kKeyMinus:
+      return EVT_MINUSKEY;
+    case GHOST_kKeyPlus:
+      return EVT_PLUSKEY;
+    case GHOST_kKeyPeriod:
+      return EVT_PERIODKEY;
+    case GHOST_kKeySlash:
+      return EVT_SLASHKEY;
+
+    case GHOST_kKeySemicolon:
+      return EVT_SEMICOLONKEY;
+    case GHOST_kKeyEqual:
+      return EVT_EQUALKEY;
+
+    case GHOST_kKeyLeftBracket:
+      return EVT_LEFTBRACKETKEY;
+    case GHOST_kKeyRightBracket:
+      return EVT_RIGHTBRACKETKEY;
+    case GHOST_kKeyBackslash:
+      return EVT_BACKSLASHKEY;
+    case GHOST_kKeyAccentGrave:
+      return EVT_ACCENTGRAVEKEY;
+
+    case GHOST_kKeyLeftShift:
+      return EVT_LEFTSHIFTKEY;
+    case GHOST_kKeyRightShift:
+      return EVT_RIGHTSHIFTKEY;
+    case GHOST_kKeyLeftControl:
+      return EVT_LEFTCTRLKEY;
+    case GHOST_kKeyRightControl:
+      return EVT_RIGHTCTRLKEY;
+    case GHOST_kKeyLeftOS:
+    case GHOST_kKeyRightOS:
+      return EVT_OSKEY;
+    case GHOST_kKeyLeftAlt:
+      return EVT_LEFTALTKEY;
+    case GHOST_kKeyRightAlt:
+      return EVT_RIGHTALTKEY;
+    case GHOST_kKeyApp:
+      return EVT_APPKEY;
+
+    case GHOST_kKeyCapsLock:
+      return EVT_CAPSLOCKKEY;
+    case GHOST_kKeyNumLock:
+      return EVENT_NONE;
+    case GHOST_kKeyScrollLock:
+      return EVENT_NONE;
+
+    case GHOST_kKeyLeftArrow:
+      return EVT_LEFTARROWKEY;
+    case GHOST_kKeyRightArrow:
+      return EVT_RIGHTARROWKEY;
+    case GHOST_kKeyUpArrow:
+      return EVT_UPARROWKEY;
+    case GHOST_kKeyDownArrow:
+      return EVT_DOWNARROWKEY;
+
+    case GHOST_kKeyPrintScreen:
+      return EVENT_NONE;
+    case GHOST_kKeyPause:
+      return EVT_PAUSEKEY;
+
+    case GHOST_kKeyInsert:
+      return EVT_INSERTKEY;
+    case GHOST_kKeyDelete:
+      return EVT_DELKEY;
+    case GHOST_kKeyHome:
+      return EVT_HOMEKEY;
+    case GHOST_kKeyEnd:
+      return EVT_ENDKEY;
+    case GHOST_kKeyUpPage:
+      return EVT_PAGEUPKEY;
+    case GHOST_kKeyDownPage:
+      return EVT_PAGEDOWNKEY;
+
+    case GHOST_kKeyNumpadPeriod:
+      return EVT_PADPERIOD;
+    case GHOST_kKeyNumpadEnter:
+      return EVT_PADENTER;
+    case GHOST_kKeyNumpadPlus:
+      return EVT_PADPLUSKEY;
+    case GHOST_kKeyNumpadMinus:
+      return EVT_PADMINUS;
+    case GHOST_kKeyNumpadAsterisk:
+      return EVT_PADASTERKEY;
+    case GHOST_kKeyNumpadSlash:
+      return EVT_PADSLASHKEY;
+
+    case GHOST_kKeyGrLess:
+      return EVT_GRLESSKEY;
+
+    case GHOST_kKeyMediaPlay:
+      return EVT_MEDIAPLAY;
+    case GHOST_kKeyMediaStop:
+      return EVT_MEDIASTOP;
+    case GHOST_kKeyMediaFirst:
+      return EVT_MEDIAFIRST;
+    case GHOST_kKeyMediaLast:
+      return EVT_MEDIALAST;
+
+    case GHOST_kKeyUnknown:
+      return EVT_UNKNOWNKEY;
+
+#if defined(__GNUC__) || defined(__clang__)
+      /* Ensure all members of this enum are handled, otherwise generate a compiler warning.
+       * Note that these members have been handled, these ranges are to satisfy the compiler. */
+    case GHOST_kKeyF1 ... GHOST_kKeyF24:
+    case GHOST_kKeyA ... GHOST_kKeyZ:
+    case GHOST_kKeyNumpad0 ... GHOST_kKeyNumpad9:
+    case GHOST_kKey0 ... GHOST_kKey9: {
+      BLI_assert_unreachable();
+      break;
+    }
+#else
+    default: {
+      break;
+    }
+#endif
+  }
+
+  CLOG_WARN(WM_LOG_EVENTS, "unknown event type %d from ghost", int(key));
+  return EVENT_NONE;
+}
+
 static void wm_eventemulation(wmEvent *event, bool test_only)
 {
   /* Store last middle-mouse event value to make emulation work
