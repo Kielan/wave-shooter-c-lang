@@ -1,3 +1,93 @@
+static void wm_eventemulation(wmEvent *event, bool test_only)
+{
+  /* Store last middle-mouse event value to make emulation work
+   * when modifier keys are released first.
+   * This really should be in a data structure somewhere. */
+  static int emulating_event = EVENT_NONE;
+
+  /* Middle-mouse emulation. */
+  if (U.flag & USER_TWOBUTTONMOUSE) {
+
+    if (event->type == LEFTMOUSE) {
+      const uint8_t mod_test = (
+#if !defined(WIN32)
+          (U.mouse_emulate_3_button_modifier == USER_EMU_MMB_MOD_OSKEY) ? KM_OSKEY : KM_ALT
+#else
+          /* Disable for WIN32 for now because it accesses the start menu. */
+          KM_ALT
+#endif
+      );
+
+      if (event->val == KM_PRESS) {
+        if (event->modifier & mod_test) {
+          event->modifier &= ~mod_test;
+          event->type = MIDDLEMOUSE;
+
+          if (!test_only) {
+            emulating_event = MIDDLEMOUSE;
+          }
+        }
+      }
+      else if (event->val == KM_RELEASE) {
+        /* Only send middle-mouse release if emulated. */
+        if (emulating_event == MIDDLEMOUSE) {
+          event->type = MIDDLEMOUSE;
+          event->modifier &= ~mod_test;
+        }
+
+        if (!test_only) {
+          emulating_event = EVENT_NONE;
+        }
+      }
+    }
+  }
+
+  /* Numeric-pad emulation. */
+  if (U.flag & USER_NONUMPAD) {
+    switch (event->type) {
+      case EVT_ZEROKEY:
+        event->type = EVT_PAD0;
+        break;
+      case EVT_ONEKEY:
+        event->type = EVT_PAD1;
+        break;
+      case EVT_TWOKEY:
+        event->type = EVT_PAD2;
+        break;
+      case EVT_THREEKEY:
+        event->type = EVT_PAD3;
+        break;
+      case EVT_FOURKEY:
+        event->type = EVT_PAD4;
+        break;
+      case EVT_FIVEKEY:
+        event->type = EVT_PAD5;
+        break;
+      case EVT_SIXKEY:
+        event->type = EVT_PAD6;
+        break;
+      case EVT_SEVENKEY:
+        event->type = EVT_PAD7;
+        break;
+      case EVT_EIGHTKEY:
+        event->type = EVT_PAD8;
+        break;
+      case EVT_NINEKEY:
+        event->type = EVT_PAD9;
+        break;
+      case EVT_MINUSKEY:
+        event->type = EVT_PADMINUS;
+        break;
+      case EVT_EQUALKEY:
+        event->type = EVT_PADPLUSKEY;
+        break;
+      case EVT_BACKSLASHKEY:
+        event->type = EVT_PADSLASHKEY;
+        break;
+    }
+  }
+}
+
 constexpr wmTabletData wm_event_tablet_data_default()
 {
   wmTabletData tablet_data{};
