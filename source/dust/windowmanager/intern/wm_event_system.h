@@ -1,3 +1,10 @@
+#include <cmath>
+#include <cstdlib>
+#include <cstring>
+
+#include "DNA_listBase.h"
+
+
 wmEvent *wm_event_add_ex(wmWindow *win,
                          const wmEvent *event_to_add,
                          const wmEvent *event_to_add_after)
