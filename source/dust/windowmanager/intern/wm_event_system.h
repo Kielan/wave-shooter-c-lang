@@ -1,3 +1,214 @@
+wmEventHandler_Keymap *WM_event_add_keymap_handler(ListBase *handlers, wmKeyMap *keymap)
+{
+  if (!keymap) {
+    CLOG_WARN(WM_LOG_HANDLERS, "called with nullptr key-map");
+    return nullptr;
+  }
+
+  /* Only allow same key-map once. */
+  LISTBASE_FOREACH (wmEventHandler *, handler_base, handlers) {
+    if (handler_base->type == WM_HANDLER_TYPE_KEYMAP) {
+      wmEventHandler_Keymap *handler = (wmEventHandler_Keymap *)handler_base;
+      if (handler->keymap == keymap) {
+        return handler;
+      }
+    }
+  }
+
+  wmEventHandler_Keymap *handler = MEM_cnew<wmEventHandler_Keymap>(__func__);
+  handler->head.type = WM_HANDLER_TYPE_KEYMAP;
+  BLI_addtail(handlers, handler);
+  handler->keymap = keymap;
+
+  return handler;
+}
+
+/**
+ * Implements fallback tool when enabled by:
+ * #SCE_WORKSPACE_TOOL_FALLBACK, #WM_GIZMOGROUPTYPE_TOOL_FALLBACK_KEYMAP.
+ *
+ * This runs before #WM_event_get_keymap_from_toolsystem,
+ * allowing both the fallback-tool and active-tool to be activated
+ * providing the key-map is configured so the keys don't conflict.
+ * For example one mouse button can run the active-tool, another button for the fallback-tool.
+ * See T72567.
+ *
+ * Follow #wmEventHandler_KeymapDynamicFn signature.
+ */
+static void wm_event_get_keymap_from_toolsystem_ex(wmWindowManager *wm,
+                                                   wmWindow *win,
+                                                   wmEventHandler_Keymap *handler,
+                                                   wmEventHandler_KeymapResult *km_result,
+                                                   /* Extra arguments. */
+                                                   const bool with_gizmos)
+{
+  memset(km_result, 0x0, sizeof(*km_result));
+
+  const char *keymap_id_list[ARRAY_SIZE(km_result->keymaps)];
+  int keymap_id_list_len = 0;
+
+  /* NOTE(@campbellbarton): If `win` is nullptr, this function may not behave as expected.
+   * Assert since this should not happen in practice.
+   * If it does, the window could be looked up in `wm` using the `area`.
+   * Keep nullptr checks in run-time code since any crashes here are difficult to redo. */
+  BLI_assert_msg(win != nullptr, "The window should always be set for tool interactions!");
+  const Scene *scene = win ? win->scene : nullptr;
+
+  ScrArea *area = static_cast<ScrArea *>(handler->dynamic.user_data);
+  handler->keymap_tool = nullptr;
+  bToolRef_Runtime *tref_rt = area->runtime.tool ? area->runtime.tool->runtime : nullptr;
+
+  if (tref_rt && tref_rt->keymap[0]) {
+    keymap_id_list[keymap_id_list_len++] = tref_rt->keymap;
+  }
+
+  bool is_gizmo_visible = false;
+  bool is_gizmo_highlight = false;
+
+  if ((tref_rt && tref_rt->keymap_fallback[0]) &&
+      (scene && (scene->toolsettings->workspace_tool_type == SCE_WORKSPACE_TOOL_FALLBACK))) {
+    bool add_keymap = false;
+    /* Support for the gizmo owning the tool key-map. */
+
+    if (tref_rt->flag & TOOLREF_FLAG_FALLBACK_KEYMAP) {
+      add_keymap = true;
+    }
+
+    if (with_gizmos && (tref_rt->gizmo_group[0] != '\0')) {
+      wmGizmoMap *gzmap = nullptr;
+      wmGizmoGroup *gzgroup = nullptr;
+      LISTBASE_FOREACH (ARegion *, region, &area->regionbase) {
+        if (region->gizmo_map != nullptr) {
+          gzmap = region->gizmo_map;
+          gzgroup = WM_gizmomap_group_find(gzmap, tref_rt->gizmo_group);
+          if (gzgroup != nullptr) {
+            break;
+          }
+        }
+      }
+      if (gzgroup != nullptr) {
+        if (gzgroup->type->flag & WM_GIZMOGROUPTYPE_TOOL_FALLBACK_KEYMAP) {
+          /* If all are hidden, don't override. */
+          is_gizmo_visible = true;
+          wmGizmo *highlight = wm_gizmomap_highlight_get(gzmap);
+          if (highlight) {
+            is_gizmo_highlight = true;
+          }
+          add_keymap = true;
+        }
+      }
+    }
+
+    if (add_keymap) {
+      keymap_id_list[keymap_id_list_len++] = tref_rt->keymap_fallback;
+    }
+  }
+
+  if (is_gizmo_visible && !is_gizmo_highlight) {
+    if (keymap_id_list_len == 2) {
+      SWAP(const char *, keymap_id_list[0], keymap_id_list[1]);
+    }
+  }
+
+  for (int i = 0; i < keymap_id_list_len; i++) {
+    const char *keymap_id = keymap_id_list[i];
+    BLI_assert(keymap_id && keymap_id[0]);
+
+    wmKeyMap *km = WM_keymap_list_find_spaceid_or_empty(
+        &wm->userconf->keymaps, keymap_id, area->spacetype, RGN_TYPE_WINDOW);
+    /* We shouldn't use key-maps from unrelated spaces. */
+    if (km == nullptr) {
+      printf("Key-map: '%s' not found for tool '%s'\n", keymap_id, area->runtime.tool->idname);
+      continue;
+    }
+    handler->keymap_tool = area->runtime.tool;
+    km_result->keymaps[km_result->keymaps_len++] = km;
+  }
+}
+
+void WM_event_get_keymap_from_toolsystem(wmWindowManager *wm,
+                                         wmWindow *win,
+                                         wmEventHandler_Keymap *handler,
+                                         wmEventHandler_KeymapResult *km_result)
+{
+  wm_event_get_keymap_from_toolsystem_ex(wm, win, handler, km_result, false);
+}
+
+wmEventHandler_Keymap *WM_event_add_keymap_handler_dynamic(
+    ListBase *handlers, wmEventHandler_KeymapDynamicFn *keymap_fn, void *user_data)
+{
+  if (!keymap_fn) {
+    CLOG_WARN(WM_LOG_HANDLERS, "called with nullptr keymap_fn");
+    return nullptr;
+  }
+
+  /* Only allow same key-map once. */
+  LISTBASE_FOREACH (wmEventHandler *, handler_base, handlers) {
+    if (handler_base->type == WM_HANDLER_TYPE_KEYMAP) {
+      wmEventHandler_Keymap *handler = (wmEventHandler_Keymap *)handler_base;
+      if (handler->dynamic.keymap_fn == keymap_fn) {
+        /* Maximizing the view needs to update the area. */
+        handler->dynamic.user_data = user_data;
+        return handler;
+      }
+    }
+  }
+
+  wmEventHandler_Keymap *handler = MEM_cnew<wmEventHandler_Keymap>(__func__);
+  handler->head.type = WM_HANDLER_TYPE_KEYMAP;
+  BLI_addtail(handlers, handler);
+  handler->dynamic.keymap_fn = keymap_fn;
+  handler->dynamic.user_data = user_data;
+
+  return handler;
+}
+
+wmEventHandler_Keymap *WM_event_add_keymap_handler_priority(ListBase *handlers,
+                                                            wmKeyMap *keymap,
+                                                            int /*priority*/)
+{
+  WM_event_remove_keymap_handler(handlers, keymap);
+
+  wmEventHandler_Keymap *handler = MEM_cnew<wmEventHandler_Keymap>("event key-map handler");
+  handler->head.type = WM_HANDLER_TYPE_KEYMAP;
+
+  BLI_addhead(handlers, handler);
+  handler->keymap = keymap;
+
+  return handler;
+}
+
+static bool event_or_prev_in_rect(const wmEvent *event, const rcti *rect)
+{
+  if (BLI_rcti_isect_pt_v(rect, event->xy)) {
+    return true;
+  }
+  if (event->type == MOUSEMOVE && BLI_rcti_isect_pt_v(rect, event->prev_xy)) {
+    return true;
+  }
+  return false;
+}
+
+static bool handler_region_v2d_mask_test(const ARegion *region, const wmEvent *event)
+{
+  rcti rect = region->v2d.mask;
+  BLI_rcti_translate(&rect, region->winrct.xmin, region->winrct.ymin);
+  return event_or_prev_in_rect(event, &rect);
+}
+
+wmEventHandler_Keymap *WM_event_add_keymap_handler_poll(ListBase *handlers,
+                                                        wmKeyMap *keymap,
+                                                        EventHandlerPoll poll)
+{
+  wmEventHandler_Keymap *handler = WM_event_add_keymap_handler(handlers, keymap);
+  if (handler == nullptr) {
+    return nullptr;
+  }
+
+  handler->head.poll = poll;
+  return handler;
+}
+
 wmEventHandler_Keymap *WM_event_add_keymap_handler_v2d_mask(ListBase *handlers, wmKeyMap *keymap)
 {
   return WM_event_add_keymap_handler_poll(handlers, keymap, handler_region_v2d_mask_test);
