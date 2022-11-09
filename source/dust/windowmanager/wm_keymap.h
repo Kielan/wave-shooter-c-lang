@@ -1,12 +1,8 @@
 #pragma once
 
-/** \file
- * \ingroup wm
- */
-
 /* dna-savable wmStructs here */
-#include "BLI_utildefines.h"
-#include "DNA_windowmanager_types.h"
+#include "LIB_utildefines.h"
+#include "structs_windowmanager_types.h"
 
 #ifdef __cplusplus
 extern "C" {
