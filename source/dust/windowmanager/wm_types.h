@@ -1,7 +1,4 @@
-/** \file
- * \ingroup wm
- *
- *
+/*
  * Overview of WM structs
  * ======================
  *
@@ -96,10 +93,10 @@ struct wmEvent;
 struct wmOperator;
 struct wmWindowManager;
 
-#include "BLI_compiler_attrs.h"
-#include "DNA_listBase.h"
-#include "DNA_vec_types.h"
-#include "RNA_types.h"
+#include "LIB_compiler_attrs.h"
+#include "structs_listBase.h"
+#include "structs_vec_types.h"
+#include "apis_types.h"
 
 /* exported types for WM */
 #include "gizmo/WM_gizmo_types.h"
@@ -721,7 +718,7 @@ typedef struct wmOperatorType {
    */
   bool (*poll_property)(const struct bContext *C,
                         struct wmOperator *op,
-                        const PropertyRNA *prop) ATTR_WARN_UNUSED_RESULT;
+                        const PropertyAPI *prop) ATTR_WARN_UNUSED_RESULT;
 
   /** Optional panel for redo and repeat, auto-generated if not set. */
   void (*ui)(struct bContext *, struct wmOperator *);
@@ -730,16 +727,16 @@ typedef struct wmOperatorType {
    * Return a different name to use in the user interface, based on property values.
    * The returned string does not need to be freed.
    */
-  const char *(*get_name)(struct wmOperatorType *, struct PointerRNA *);
+  const char *(*get_name)(struct wmOperatorType *, struct PointerAPI *);
 
   /**
    * Return a different description to use in the user interface, based on property values.
    * The returned string must be freed by the caller, unless NULL.
    */
-  char *(*get_description)(struct bContext *C, struct wmOperatorType *, struct PointerRNA *);
+  char *(*get_description)(struct bContext *C, struct wmOperatorType *, struct PointerAPI *);
 
   /** rna for properties */
-  struct StructRNA *srna;
+  struct StructAPI *srna;
 
   /** previous settings - for initializing on re-use */
   struct IDProperty *last_properties;
@@ -751,7 +748,7 @@ typedef struct wmOperatorType {
    * When assigned a string/number property,
    * immediately edit the value when used in a popup. see: #UI_BUT_ACTIVATE_ON_INIT.
    */
-  PropertyRNA *prop;
+  PropertyAPI *prop;
 
   /** struct wmOperatorTypeMacro */
   ListBase macro;
@@ -763,7 +760,7 @@ typedef struct wmOperatorType {
   bool (*pyop_poll)(struct bContext *, struct wmOperatorType *ot) ATTR_WARN_UNUSED_RESULT;
 
   /** RNA integration */
-  ExtensionRNA rna_ext;
+  ExtensionAPI api_ext;
 
   /** Flag last for padding */
   short flag;
@@ -776,7 +773,7 @@ typedef struct wmOperatorType {
  */
 typedef struct wmOperatorCallParams {
   struct wmOperatorType *optype;
-  struct PointerRNA *opptr;
+  struct PointerAPI *opptr;
   short opcontext;
 } wmOperatorCallParams;
 
@@ -876,7 +873,7 @@ typedef struct wmDropBox {
   /** Operator properties, assigned to ptr->data and can be written to a file. */
   struct IDProperty *properties;
   /** RNA pointer to access properties. */
-  struct PointerRNA *ptr;
+  struct PointerAPI *ptr;
 
   /** Default invoke. */
   short opcontext;
