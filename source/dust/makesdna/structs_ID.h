@@ -1,13 +1,12 @@
-/** \file
- * \ingroup DNA
- * \brief ID and Library types, which are fundamental for sdna.
+/**
+ * ID and Library types, which are fundamental for sdna.
  */
 
 #pragma once
 
-#include "DNA_ID_enums.h"
-#include "DNA_defs.h"
-#include "DNA_listBase.h"
+#include "structs_ID_enums.h"
+#include "structs_defs.h"
+#include "structs_listBase.h"
 
 #ifdef __cplusplus
 extern "C" {
