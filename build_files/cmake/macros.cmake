@@ -1,3 +1,46 @@
+# Function for converting pixmap directory to a '.png' and then a '.c' file.
+function(data_to_c_simple_icons
+  path_from icon_prefix icon_names
+  list_to_add
+  )
+
+  # Conversion steps
+  #  path_from  ->  _file_from  ->  _file_to
+  #  foo/*.dat  ->  foo.png     ->  foo.png.c
+
+  get_filename_component(_path_from_abs ${path_from} ABSOLUTE)
+  # remove ../'s
+  get_filename_component(_file_from ${CMAKE_CURRENT_BINARY_DIR}/${path_from}.png   REALPATH)
+  get_filename_component(_file_to   ${CMAKE_CURRENT_BINARY_DIR}/${path_from}.png.c REALPATH)
+
+  list(APPEND ${list_to_add} ${_file_to})
+  set(${list_to_add} ${${list_to_add}} PARENT_SCOPE)
+
+  get_filename_component(_file_to_path ${_file_to} PATH)
+
+  # Construct a list of absolute paths from input
+  set(_icon_files)
+  foreach(_var ${icon_names})
+    list(APPEND _icon_files "${_path_from_abs}/${icon_prefix}${_var}.dat")
+  endforeach()
+
+  add_custom_command(
+    OUTPUT  ${_file_from} ${_file_to}
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${_file_to_path}
+    # COMMAND python3 ${CMAKE_SOURCE_DIR}/source/blender/datatoc/datatoc_icon.py ${_path_from_abs} ${_file_from}
+    COMMAND "$<TARGET_FILE:datatoc_icon>" ${_path_from_abs} ${_file_from}
+    COMMAND "$<TARGET_FILE:datatoc>" ${_file_from} ${_file_to}
+    DEPENDS
+      ${_icon_files}
+      datatoc_icon
+      datatoc
+      # could be an arg but for now we only create icons depending on UI_icons.h
+      ${CMAKE_SOURCE_DIR}/source/blender/editors/include/UI_icons.h
+    )
+
+  set_source_files_properties(${_file_from} ${_file_to} PROPERTIES GENERATED TRUE)
+endfunction()
+
 macro(blender_precompile_headers target cpp header)
   if(MSVC)
     # get the name for the pch output file
