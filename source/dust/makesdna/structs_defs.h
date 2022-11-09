@@ -4,12 +4,12 @@
 
 #pragma once
 
-#include "DNA_defs.h"
-#include "DNA_listBase.h"
-#include "DNA_vec_types.h"
-#include "DNA_view2d_types.h"
+#include "structs_defs.h"
+#include "structs_listBase.h"
+#include "structs_vec_types.h"
+#include "structs_view2d_types.h"
 
-#include "DNA_ID.h"
+#include "structs_ID.h"
 
 #ifdef __cplusplus
 extern "C" {
