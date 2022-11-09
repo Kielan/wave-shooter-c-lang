@@ -4,11 +4,11 @@
 
 #pragma once
 
-#include "DNA_listBase.h"
-#include "DNA_screen_types.h" /* for #ScrAreaMap */
-#include "DNA_xr_types.h"     /* for #XrSessionSettings */
+#include "structs_listBase.h"
+#include "structs_screen_types.h" /* for #ScrAreaMap */
+#include "structs_xr_types.h"     /* for #XrSessionSettings */
 
-#include "DNA_ID.h"
+#include "structs_ID.h"
 
 #ifdef __cplusplus
 extern "C" {
