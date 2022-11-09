@@ -1,8 +1,4 @@
-/** \file
- * \ingroup wm
- *
- * \name WM-Surface
- *
+/*
  * Container to manage painting in an offscreen context.
  */
 
