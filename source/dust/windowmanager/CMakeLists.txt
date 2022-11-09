@@ -2,19 +2,18 @@ set(INC
   .
   gizmo
   gizmo/intern
-  ../blenfont
-  ../blenkernel
-  ../blenlib
-  ../blenloader
-  ../blentranslation
+  ../font
+  ../kernel
+  ../lib
+  ../loader
   ../compositor
   ../depsgraph
   ../editors/include
   ../draw
   ../gpu
   ../imbuf
-  ../makesdna
-  ../makesrna
+  ../makesstructs
+  ../makesapi
   ../nodes
   ../render/extern/include
   ../sequencer
