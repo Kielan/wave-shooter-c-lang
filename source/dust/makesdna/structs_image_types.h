@@ -1,12 +1,12 @@
-/** \file
- * \ingroup DNA
+/*
+ *
  */
 
 #pragma once
 
-#include "DNA_ID.h"
-#include "DNA_color_types.h" /* for color management */
-#include "DNA_defs.h"
+#include "structs_ID.h"
+#include "structs_color_types.h" /* for color management */
+#include "structs_defs.h"
 
 #ifdef __cplusplus
 extern "C" {
