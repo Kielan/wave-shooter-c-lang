@@ -1,5 +1,5 @@
-/** \file
- * \ingroup DNA
+/*
+ *
  */
 
 #pragma once
