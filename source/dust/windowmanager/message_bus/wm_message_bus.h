@@ -1,6 +1,6 @@
 #pragma once
 
-#include "RNA_types.h"
+#include "api_types.h"
 #include <stdio.h>
 
 struct ID;
