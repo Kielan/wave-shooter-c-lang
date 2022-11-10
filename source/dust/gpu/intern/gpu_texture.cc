@@ -9,11 +9,10 @@
 
 #include "gpu_texture_private.hh"
 
-namespace blender::gpu {
+namespace dust::gpu {
 
 /* -------------------------------------------------------------------- */
-/** \name Creation & Deletion
- * \{ */
+/* Creation & Deletion */
 
 Texture::Texture(const char *name)
 {
