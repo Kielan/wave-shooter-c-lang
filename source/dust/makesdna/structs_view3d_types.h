@@ -67,7 +67,7 @@ typedef struct RegionView3D {
   float tw_axis_min[3], tw_axis_max[3];
   float tw_axis_matrix[3][3];
 
-  float gridview DNA_DEPRECATED;
+  float gridview STRUCTS_DEPRECATED;
 
   /** View rotation, must be kept normalized. */
   float viewquat[4];
@@ -259,15 +259,15 @@ typedef struct View3D {
   char _pad0[6];
   /* End 'SpaceLink' header. */
 
-  float viewquat[4] DNA_DEPRECATED;
-  float dist DNA_DEPRECATED;
+  float viewquat[4] STRUCTS_DEPRECATED;
+  float dist STRUCTS_DEPRECATED;
 
   /** Size of bundles in reconstructed data. */
   float bundle_size;
   /** Display style for bundle. */
   char bundle_drawtype;
 
-  char drawtype DNA_DEPRECATED;
+  char drawtype STRUCTS_DEPRECATED;
 
   char _pad3[1];
 
@@ -277,8 +277,8 @@ typedef struct View3D {
   int object_type_exclude_viewport;
   int object_type_exclude_select;
 
-  short persp DNA_DEPRECATED;
-  short view DNA_DEPRECATED;
+  short persp STRUCTS_DEPRECATED;
+  short view STRUCTS_DEPRECATED;
 
   struct Object *camera, *ob_center;
   rctf render_border;
@@ -291,7 +291,7 @@ typedef struct View3D {
 
   unsigned short local_view_uuid;
   char _pad6[2];
-  int layact DNA_DEPRECATED;
+  int layact STRUCTS_DEPRECATED;
   unsigned short local_collections_uuid;
   short _pad7[2];
 
@@ -306,7 +306,7 @@ typedef struct View3D {
 
   float lens, grid;
   float clip_start, clip_end;
-  float ofs[3] DNA_DEPRECATED;
+  float ofs[3] STRUCTS_DEPRECATED;
 
   char _pad[1];
 
@@ -331,7 +331,7 @@ typedef struct View3D {
 
   /* XXX deprecated? */
   /** Grease-Pencil Data (annotation layers). */
-  struct bGPdata *gpd DNA_DEPRECATED;
+  struct bGPdata *gpd STRUCTS_DEPRECATED;
 
   /** Stereoscopy settings. */
   short stereo3d_flag;
@@ -607,7 +607,7 @@ enum {
   V3D_ORIENT_GIMBAL = 4,
   V3D_ORIENT_CURSOR = 5,
   V3D_ORIENT_CUSTOM = 1024,
-  /** Runtime only, never saved to DNA. */
+  /** Runtime only, never saved to STRUCTS. */
   V3D_ORIENT_CUSTOM_MATRIX = (V3D_ORIENT_CUSTOM - 1),
 };
 
