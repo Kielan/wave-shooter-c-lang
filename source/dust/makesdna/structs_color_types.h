@@ -36,7 +36,7 @@ enum {
 
 typedef struct CurveMap {
   short totpoint;
-  short flag DNA_DEPRECATED;
+  short flag STRUCTS_DEPRECATED;
 
   /** Quick multiply value for reading table. */
   float range;
