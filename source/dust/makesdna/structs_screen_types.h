@@ -47,7 +47,7 @@ typedef struct bScreen {
   /** Screen level regions (menus), runtime only. */
   ListBase regionbase;
 
-  struct Scene *scene DNA_DEPRECATED;
+  struct Scene *scene STRUCTS_DEPRECATED;
 
   /** General flags. */
   short flag;
@@ -386,7 +386,7 @@ typedef struct ScrArea {
   short winx, winy;
 
   /** OLD! 0=no header, 1= down, 2= up. */
-  char headertype DNA_DEPRECATED;
+  char headertype STRUCTS_DEPRECATED;
   /** Private, for spacetype refresh callback. */
   char do_refresh;
   short flag;
@@ -514,7 +514,7 @@ enum {
   HEADER_NO_PULLDOWN = (1 << 0),
 //  AREA_FLAG_UNUSED_1           = (1 << 1),
 //  AREA_FLAG_UNUSED_2           = (1 << 2),
-#ifdef DNA_DEPRECATED_ALLOW
+#ifdef STRUCTS_DEPRECATED_ALLOW
   AREA_TEMP_INFO = (1 << 3), /* versioned to make slot reusable */
 #endif
   /** Update size of regions within the area. */
