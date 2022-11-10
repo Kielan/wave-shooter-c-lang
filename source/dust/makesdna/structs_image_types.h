@@ -163,17 +163,17 @@ typedef struct Image {
   char _pad2[4];
 
   /** Deprecated. */
-  struct PackedFile *packedfile DNA_DEPRECATED;
+  struct PackedFile *packedfile STRUCTS_DEPRECATED;
   struct ListBase packedfiles;
   struct PreviewImage *preview;
 
   int lastused;
 
   /* for generated images */
-  int gen_x DNA_DEPRECATED, gen_y DNA_DEPRECATED;
-  char gen_type DNA_DEPRECATED, gen_flag DNA_DEPRECATED;
-  short gen_depth DNA_DEPRECATED;
-  float gen_color[4] DNA_DEPRECATED;
+  int gen_x STRUCTS_DEPRECATED, gen_y STRUCTS_DEPRECATED;
+  char gen_type STRUCTS_DEPRECATED, gen_flag STRUCTS_DEPRECATED;
+  short gen_depth STRUCTS_DEPRECATED;
+  float gen_color[4] STRUCTS_DEPRECATED;
 
   /* display aspect - for UV editing images resized for faster openGL display */
   float aspx, aspy;
@@ -206,7 +206,7 @@ typedef struct Image {
 enum {
   IMA_HIGH_BITDEPTH = (1 << 0),
   IMA_FLAG_UNUSED_1 = (1 << 1), /* cleared */
-#ifdef DNA_DEPRECATED_ALLOW
+#ifdef STRUCTS_DEPRECATED_ALLOW
   IMA_DO_PREMUL = (1 << 2),
 #endif
   IMA_FLAG_UNUSED_4 = (1 << 4), /* cleared */
