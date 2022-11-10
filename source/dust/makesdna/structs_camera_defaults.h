@@ -7,14 +7,14 @@
 /* Camera Struct
  */
 
-#define _DNA_DEFAULT_CameraDOFSettings \
+#define _STRUCTS_DEFAULT_CameraDOFSettings \
   { \
     .aperture_fstop = 2.8f, \
     .aperture_ratio = 1.0f, \
     .focus_distance = 10.0f, \
   }
 
-#define _DNA_DEFAULT_CameraStereoSettings \
+#define _STRUCTS_DEFAULT_CameraStereoSettings \
   { \
     .interocular_distance = 0.065f, \
     .convergence_distance = 30.0f * 0.065f, \
@@ -22,7 +22,7 @@
     .pole_merge_angle_to = DEG2RADF(75.0f), \
   }
 
-#define _DNA_DEFAULT_Camera \
+#define _STRUCTS_DEFAULT_Camera \
   { \
     .lens = 50.0f, \
     .sensor_x = DEFAULT_SENSOR_WIDTH, \
@@ -34,7 +34,7 @@
     .flag = CAM_SHOWPASSEPARTOUT, \
     .passepartalpha = 0.5f, \
  \
-    .dof = _DNA_DEFAULT_CameraDOFSettings, \
+    .dof = _STRUCTS_DEFAULT_CameraDOFSettings, \
  \
-    .stereo = _DNA_DEFAULT_CameraStereoSettings, \
+    .stereo = _STRUCTS_DEFAULT_CameraStereoSettings, \
   }
