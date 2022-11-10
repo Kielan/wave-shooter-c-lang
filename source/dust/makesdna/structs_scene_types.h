@@ -1,13 +1,9 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later
  * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
-/** \file
- * \ingroup DNA
- */
-
 #pragma once
 
-#include "DNA_defs.h"
+#include "STRUCTS_defs.h"
 
 /* XXX(@campbellbarton): temp feature. */
 #define DURIAN_CAMERA_SWITCH
@@ -18,13 +14,13 @@
  */
 #define USE_SETSCENE_CHECK
 
-#include "DNA_ID.h"
-#include "DNA_color_types.h"      /* color management */
-#include "DNA_customdata_types.h" /* Scene's runtime custom-data masks. */
-#include "DNA_layer_types.h"
-#include "DNA_listBase.h"
-#include "DNA_vec_types.h"
-#include "DNA_view3d_types.h"
+#include "STRUCTS_ID.h"
+#include "STRUCTS_color_types.h"      /* color management */
+#include "STRUCTS_customdata_types.h" /* Scene's runtime custom-data masks. */
+#include "STRUCTS_layer_types.h"
+#include "STRUCTS_listBase.h"
+#include "STRUCTS_vec_types.h"
+#include "STRUCTS_view3d_types.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -85,7 +81,7 @@ typedef struct AviCodecData {
 typedef enum eFFMpegPreset {
   FFM_PRESET_NONE = 0,
 
-#ifdef DNA_DEPRECATED_ALLOW
+#ifdef STRUCTS_DEPRECATED_ALLOW
   /* Previously used by h.264 to control encoding speed vs. file size. */
   FFM_PRESET_ULTRAFAST = 1, /* DEPRECATED */
   FFM_PRESET_SUPERFAST = 2, /* DEPRECATED */
@@ -183,35 +179,35 @@ typedef struct SceneRenderLayer {
   struct SceneRenderLayer *next, *prev;
 
   /** MAX_NAME. */
-  char name[64] DNA_DEPRECATED;
+  char name[64] STRUCTS_DEPRECATED;
 
   /** Converted to ViewLayer setting. */
-  struct Material *mat_override DNA_DEPRECATED;
+  struct Material *mat_override STRUCTS_DEPRECATED;
 
   /** Converted to LayerCollection cycles camera visibility override. */
-  unsigned int lay DNA_DEPRECATED;
+  unsigned int lay STRUCTS_DEPRECATED;
   /** Converted to LayerCollection cycles holdout override. */
-  unsigned int lay_zmask DNA_DEPRECATED;
-  unsigned int lay_exclude DNA_DEPRECATED;
+  unsigned int lay_zmask STRUCTS_DEPRECATED;
+  unsigned int lay_exclude STRUCTS_DEPRECATED;
   /** Converted to ViewLayer layflag and flag. */
-  int layflag DNA_DEPRECATED;
+  int layflag STRUCTS_DEPRECATED;
 
   /* pass_xor has to be after passflag */
   /** Pass_xor has to be after passflag. */
-  int passflag DNA_DEPRECATED;
+  int passflag STRUCTS_DEPRECATED;
   /** Converted to ViewLayer passflag and flag. */
-  int pass_xor DNA_DEPRECATED;
+  int pass_xor STRUCTS_DEPRECATED;
 
   /** Converted to ViewLayer setting. */
-  int samples DNA_DEPRECATED;
+  int samples STRUCTS_DEPRECATED;
   /** Converted to ViewLayer pass_alpha_threshold. */
-  float pass_alpha_threshold DNA_DEPRECATED;
+  float pass_alpha_threshold STRUCTS_DEPRECATED;
 
   /** Converted to ViewLayer id_properties. */
-  IDProperty *prop DNA_DEPRECATED;
+  IDProperty *prop STRUCTS_DEPRECATED;
 
   /** Converted to ViewLayer freestyleConfig. */
-  struct FreestyleConfig freestyleConfig DNA_DEPRECATED;
+  struct FreestyleConfig freestyleConfig STRUCTS_DEPRECATED;
 } SceneRenderLayer;
 
 /** #SceneRenderLayer.layflag */
@@ -641,7 +637,7 @@ typedef struct RenderData {
   int frame_step;
 
   /** Standalone player stereo settings */ /* XXX deprecated since .2.5 */
-  short stereomode DNA_DEPRECATED;
+  short stereomode STRUCTS_DEPRECATED;
 
   /** For the dimensions presets menu. */
   short dimensionspreset;
@@ -664,13 +660,13 @@ typedef struct RenderData {
   /**
    * render tile dimensions
    */
-  int tilex DNA_DEPRECATED;
-  int tiley DNA_DEPRECATED;
+  int tilex STRUCTS_DEPRECATED;
+  int tiley STRUCTS_DEPRECATED;
 
-  short planes DNA_DEPRECATED;
-  short imtype DNA_DEPRECATED;
-  short subimtype DNA_DEPRECATED;
-  short quality DNA_DEPRECATED;
+  short planes STRUCTS_DEPRECATED;
+  short imtype STRUCTS_DEPRECATED;
+  short subimtype STRUCTS_DEPRECATED;
+  short quality STRUCTS_DEPRECATED;
 
   char use_lock_interface;
   char _pad7[3];
@@ -700,9 +696,9 @@ typedef struct RenderData {
 
   /* information on different layers to be rendered */
   /** Converted to Scene->view_layers. */
-  ListBase layers DNA_DEPRECATED;
+  ListBase layers STRUCTS_DEPRECATED;
   /** Converted to Scene->active_layer. */
-  short actlay DNA_DEPRECATED;
+  short actlay STRUCTS_DEPRECATED;
   char _pad1[2];
 
   /**
@@ -1510,10 +1506,10 @@ typedef struct ToolSettings {
   float select_thresh;
 
   /* Auto-Keying Mode */
-  /** Defines in DNA_userdef_types.h. */
+  /** Defines in STRUCTS_userdef_types.h. */
   short autokey_flag;
   char autokey_mode;
-  /** Keyframe type (see DNA_curve_types.h). */
+  /** Keyframe type (see STRUCTS_curve_types.h). */
   char keyframe_type;
 
   /* Multires */
@@ -1581,10 +1577,10 @@ typedef struct ToolSettings {
 
   /* XXX: these sculpt_paint_* fields are deprecated, use the
    * unified_paint_settings field instead! */
-  short sculpt_paint_settings DNA_DEPRECATED;
-  int sculpt_paint_unified_size DNA_DEPRECATED;
-  float sculpt_paint_unified_unprojected_radius DNA_DEPRECATED;
-  float sculpt_paint_unified_alpha DNA_DEPRECATED;
+  short sculpt_paint_settings STRUCTS_DEPRECATED;
+  int sculpt_paint_unified_size STRUCTS_DEPRECATED;
+  float sculpt_paint_unified_unprojected_radius STRUCTS_DEPRECATED;
+  float sculpt_paint_unified_alpha STRUCTS_DEPRECATED;
 
   /* Unified Paint Settings */
   struct UnifiedPaintSettings unified_paint_settings;
@@ -1726,18 +1722,18 @@ typedef struct SceneEEVEE {
   float bloom_radius;
   float bloom_clamp;
 
-  int motion_blur_samples DNA_DEPRECATED;
+  int motion_blur_samples STRUCTS_DEPRECATED;
   int motion_blur_max;
   int motion_blur_steps;
   int motion_blur_position;
   float motion_blur_shutter;
   float motion_blur_depth_scale;
 
-  int shadow_method DNA_DEPRECATED;
+  int shadow_method STRUCTS_DEPRECATED;
   int shadow_cube_size;
   int shadow_cascade_size;
 
-  struct LightCache *light_cache DNA_DEPRECATED;
+  struct LightCache *light_cache STRUCTS_DEPRECATED;
   struct LightCache *light_cache_data;
   char light_cache_info[64];
 
@@ -1780,18 +1776,18 @@ typedef struct Scene {
 
   struct Scene *set;
 
-  ListBase base DNA_DEPRECATED;
+  ListBase base STRUCTS_DEPRECATED;
   /** Active base. */
-  struct Base *basact DNA_DEPRECATED;
+  struct Base *basact STRUCTS_DEPRECATED;
   void *_pad1;
 
   /** 3d cursor location. */
   View3DCursor cursor;
 
   /** Bitflags for layer visibility (deprecated). */
-  unsigned int lay DNA_DEPRECATED;
+  unsigned int lay STRUCTS_DEPRECATED;
   /** Active layer (deprecated) */
-  int layact DNA_DEPRECATED;
+  int layact STRUCTS_DEPRECATED;
   char _pad2[4];
 
   /** Various settings. */
@@ -1875,7 +1871,7 @@ typedef struct Scene {
   ListBase view_layers;
   /* Not an actual datablock, but memory owned by scene. */
   struct Collection *master_collection;
-  struct SceneCollection *collection DNA_DEPRECATED;
+  struct SceneCollection *collection STRUCTS_DEPRECATED;
 
   /** Settings to be override by workspaces. */
   IDProperty *layer_properties;
@@ -2087,7 +2083,7 @@ extern const char *RE_engine_id_CYCLES;
 #define TIME2FRA(a) ((((double)scene->r.frs_sec) * (double)(a)) / (double)scene->r.frs_sec_base)
 #define FPS (((double)scene->r.frs_sec) / (double)scene->r.frs_sec_base)
 
-/* Base.flag is in DNA_object_types.h */
+/* Base.flag is in STRUCTS_object_types.h */
 
 /** #ToolSettings.transform_flag */
 enum {
@@ -2272,7 +2268,7 @@ typedef enum eVGroupSelect {
 
 /** #FFMpegCodecData.flags */
 enum {
-#ifdef DNA_DEPRECATED_ALLOW
+#ifdef STRUCTS_DEPRECATED_ALLOW
   FFMPEG_MULTIPLEX_AUDIO = (1 << 0), /* deprecated, you can choose none as audiocodec now */
 #endif
   FFMPEG_AUTOSPLIT_OUTPUT = (1 << 1),
