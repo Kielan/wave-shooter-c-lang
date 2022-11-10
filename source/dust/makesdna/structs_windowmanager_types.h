@@ -1,7 +1,3 @@
-/** \file
- * \ingroup DNA
- */
-
 #pragma once
 
 #include "structs_listBase.h"
@@ -222,7 +218,7 @@ enum {
 #define WM_KEYCONFIG_STR_DEFAULT "Blender"
 
 /* IME is win32 and apple only! */
-#if !(defined(WIN32) || defined(__APPLE__)) && !defined(DNA_DEPRECATED)
+#if !(defined(WIN32) || defined(__APPLE__)) && !defined(STRUCTS_DEPRECATED)
 #  ifdef __GNUC__
 #    define ime_data ime_data __attribute__((deprecated))
 #  endif
@@ -258,7 +254,7 @@ typedef struct wmWindow {
    * \note Code assumes global areas with fixed height, fixed width not supported yet */
   ScrAreaMap global_areas;
 
-  struct bScreen *screen DNA_DEPRECATED;
+  struct bScreen *screen STRUCTS_DEPRECATED;
 
   /** Winid also in screens, is for retrieving this window after read. */
   int winid;
@@ -353,7 +349,7 @@ typedef struct wmWindow {
 #endif
 
 /* These two Lines with # tell makesdna this struct can be excluded. */
-/* should be something like DNA_EXCLUDE
+/* should be something like STRUCTS_EXCLUDE
  * but the preprocessor first removes all comments, spaces etc */
 #
 #
@@ -467,7 +463,7 @@ typedef struct wmKeyMap {
 
   /** Global editor keymaps, or for more per space/region. */
   char idname[64];
-  /** Same IDs as in DNA_space_types.h. */
+  /** Same IDs as in STRUCTS_space_types.h. */
   short spaceid;
   /** See above. */
   short regionid;
@@ -509,7 +505,7 @@ enum {
  * This is similar to addon-preferences,
  * however unlike add-ons key-config's aren't saved to disk.
  *
- * #wmKeyConfigPref is written to DNA,
+ * #wmKeyConfigPref is written to STRUCTS,
  * #wmKeyConfigPrefType_Runtime has the RNA type.
  */
 typedef struct wmKeyConfigPref {
