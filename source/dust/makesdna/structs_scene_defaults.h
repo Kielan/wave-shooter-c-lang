@@ -9,7 +9,7 @@
 /* Scene Struct
  *\
 
-#define _DNA_DEFAULT_ImageFormatData \
+#define _STRUCTS_DEFAULT_ImageFormatData \
   { \
     .planes = R_IMF_PLANES_RGBA, \
     .imtype = R_IMF_IMTYPE_PNG, \
@@ -18,9 +18,9 @@
     .compress = 15, \
   }
 
-#define _DNA_DEFAULT_BakeData \
+#define _STRUCTS_DEFAULT_BakeData \
   { \
-    .im_format = _DNA_DEFAULT_ImageFormatData, \
+    .im_format = _STRUCTS_DEFAULT_ImageFormatData, \
     .filepath = "//", \
     .flag = R_BAKE_CLEAR, \
     .pass_filter = R_BAKE_PASS_FILTER_ALL, \
@@ -32,7 +32,7 @@
     .normal_swizzle = {R_BAKE_POSX, R_BAKE_POSY, R_BAKE_POSZ}, \
   }
 
-#define _DNA_DEFAULT_FFMpegCodecData \
+#define _STRUCTS_DEFAULT_FFMpegCodecData \
   { \
     .audio_mixrate = 48000, \
     .audio_volume = 1.0f, \
@@ -40,7 +40,7 @@
     .audio_channels = 2, \
   }
 
-#define _DNA_DEFAULT_DisplaySafeAreas \
+#define _STRUCTS_DEFAULT_DisplaySafeAreas \
   { \
     .title = {10.0f / 100.0f, 5.0f / 100.0f}, \
     .action = {3.5f / 100.0f, 3.5f / 100.0f}, \
@@ -48,7 +48,7 @@
     .action_center = {15.0f / 100.0f, 5.0f / 100.0f}, \
   }
 
-#define _DNA_DEFAULT_RenderData \
+#define _STRUCTS_DEFAULT_RenderData \
   { \
     .mode = 0, \
     .cfra = 1, \
@@ -63,7 +63,7 @@
     .tiley = 256, \
     .size = 100, \
  \
-    .im_format = _DNA_DEFAULT_ImageFormatData, \
+    .im_format = _STRUCTS_DEFAULT_ImageFormatData, \
  \
     .framapto = 100, \
     .images = 100, \
@@ -90,7 +90,7 @@
     .bake_biasdist = 0.001f, \
  \
     /* BakeData */ \
-    .bake = _DNA_DEFAULT_BakeData, \
+    .bake = _STRUCTS_DEFAULT_BakeData, \
  \
     .scemode = R_DOCOMP | R_DOSEQ | R_EXTENSION, \
  \
@@ -120,10 +120,10 @@
     .line_thickness_mode = R_LINE_THICKNESS_ABSOLUTE, \
     .unit_line_thickness = 1.0f, \
  \
-    .ffcodecdata = _DNA_DEFAULT_FFMpegCodecData, \
+    .ffcodecdata = _STRUCTS_DEFAULT_FFMpegCodecData, \
   }
 
-#define _DNA_DEFAULT_AudioData \
+#define _STRUCTS_DEFAULT_AudioData \
   { \
     .distance_model = 2.0f, \
     .doppler_factor = 1.0f, \
@@ -132,7 +132,7 @@
     .flag = AUDIO_SYNC, \
   }
 
-#define _DNA_DEFAULT_SceneDisplay \
+#define _STRUCTS_DEFAULT_SceneDisplay \
   { \
     .light_direction = {M_SQRT1_3, M_SQRT1_3, M_SQRT1_3}, \
     .shadow_shift = 0.1f, \
@@ -142,19 +142,19 @@
     .matcap_ssao_attenuation = 1.0f, \
     .matcap_ssao_samples = 16, \
  \
-    .shading = _DNA_DEFAULT_View3DShading, \
+    .shading = _STRUCTS_DEFAULT_View3DShading, \
  \
     .render_aa = SCE_DISPLAY_AA_SAMPLES_8, \
     .viewport_aa = SCE_DISPLAY_AA_FXAA, \
   }
 
-#define _DNA_DEFAULT_PhysicsSettings \
+#define _STRUCTS_DEFAULT_PhysicsSettings \
   { \
     .gravity = {0.0f, 0.0f, -9.81f}, \
     .flag = PHYS_GLOBAL_GRAVITY, \
   }
 
-#define _DNA_DEFAULT_SceneEEVEE \
+#define _STRUCTS_DEFAULT_SceneEEVEE \
   { \
     .gi_diffuse_bounces = 3, \
     .gi_cubemap_resolution = 512, \
@@ -219,19 +219,19 @@
                     SCE_EEVEE_SSR_HALF_RESOLUTION | SCE_EEVEE_SHADOW_SOFT, \
   }
 
-#define _DNA_DEFAULT_Scene \
+#define _STRUCTS_DEFAULT_Scene \
   { \
-    .cursor = _DNA_DEFAULT_View3DCursor, \
-    .r = _DNA_DEFAULT_RenderData, \
-    .audio = _DNA_DEFAULT_AudioData, \
+    .cursor = _STRUCTS_DEFAULT_View3DCursor, \
+    .r = _STRUCTS_DEFAULT_RenderData, \
+    .audio = _STRUCTS_DEFAULT_AudioData, \
  \
-    .display = _DNA_DEFAULT_SceneDisplay, \
+    .display = _STRUCTS_DEFAULT_SceneDisplay, \
  \
-    .physics_settings = _DNA_DEFAULT_PhysicsSettings, \
+    .physics_settings = _STRUCTS_DEFAULT_PhysicsSettings, \
  \
-    .safe_areas = _DNA_DEFAULT_DisplaySafeAreas, \
+    .safe_areas = _STRUCTS_DEFAULT_DisplaySafeAreas, \
  \
-    .eevee = _DNA_DEFAULT_SceneEEVEE, \
+    .eevee = _STRUCTS_DEFAULT_SceneEEVEE, \
   }
 
 /** \} */
@@ -240,7 +240,7 @@
 /** \name ToolSettings Struct
  * \{ */
 
-#define _DNA_DEFAULTS_CurvePaintSettings \
+#define _STRUCTS_DEFAULTS_CurvePaintSettings \
   { \
     .curve_type = CU_BEZIER, \
     .flag = CURVE_PAINT_FLAG_CORNERS_DETECT, \
@@ -249,14 +249,14 @@
     .corner_angle = DEG2RADF(70.0f), \
   }
 
-#define _DNA_DEFAULTS_ImagePaintSettings \
+#define _STRUCTS_DEFAULTS_ImagePaintSettings \
   { \
     .paint.flags = PAINT_SHOW_BRUSH, \
     .normal_angle = 80, \
     .seam_bleed = 2, \
   }
 
-#define _DNA_DEFAULTS_ParticleBrushData \
+#define _STRUCTS_DEFAULTS_ParticleBrushData \
   { \
     .strength = 0.5f, \
     .size = 50, \
@@ -264,7 +264,7 @@
     .count = 10, \
   }
 
-#define _DNA_DEFAULTS_UnifiedPaintSettings \
+#define _STRUCTS_DEFAULTS_UnifiedPaintSettings \
   { \
     .size = 50, \
     .unprojected_radius = 0.29, \
@@ -273,7 +273,7 @@
     .flag = UNIFIED_PAINT_SIZE | UNIFIED_PAINT_ALPHA, \
   }
 
-#define _DNA_DEFAULTS_ParticleEditSettings \
+#define _STRUCTS_DEFAULTS_ParticleEditSettings \
   { \
     .flag = PE_KEEP_LENGTHS | PE_LOCK_FIRST | PE_DEFLECT_EMITTER | PE_AUTO_VELOCITY, \
     .emitterdist = 0.25f, \
@@ -282,24 +282,24 @@
     .brushtype = PE_BRUSH_COMB, \
  \
     /* Scene init copies this to all other elements. */ \
-    .brush = {_DNA_DEFAULTS_ParticleBrushData}, \
+    .brush = {_STRUCTS_DEFAULTS_ParticleBrushData}, \
  \
     .draw_step = 2, \
     .fade_frames = 2, \
     .selectmode = SCE_SELECT_PATH, \
   }
 
-#define _DNA_DEFAULTS_GP_Sculpt_Guide \
+#define _STRUCTS_DEFAULTS_GP_Sculpt_Guide \
   { \
     .spacing = 20.0f, \
   }
 
-#define _DNA_DEFAULTS_GP_Sculpt_Settings \
+#define _STRUCTS_DEFAULTS_GP_Sculpt_Settings \
   { \
-    .guide = _DNA_DEFAULTS_GP_Sculpt_Guide, \
+    .guide = _STRUCTS_DEFAULTS_GP_Sculpt_Guide, \
   }
 
-#define _DNA_DEFAULTS_MeshStatVis \
+#define _STRUCTS_DEFAULTS_MeshStatVis \
   { \
     .overhang_axis = OB_NEGZ, \
     .overhang_min = 0, \
@@ -313,7 +313,7 @@
     .sharp_max = DEG2RADF(180.0f), \
   }
 
-#define _DNA_DEFAULT_ToolSettings \
+#define _STRUCTS_DEFAULT_ToolSettings \
   { \
     .object_flag = SCE_OBJECT_MODE_LOCK, \
     .doublimit = 0.001, \
@@ -335,19 +335,19 @@
     .snap_transform_mode_flag = SCE_SNAP_TRANSFORM_MODE_TRANSLATE, \
     .snap_face_nearest_steps = 1, \
  \
-    .curve_paint_settings = _DNA_DEFAULTS_CurvePaintSettings, \
+    .curve_paint_settings = _STRUCTS_DEFAULTS_CurvePaintSettings, \
  \
-    .unified_paint_settings = _DNA_DEFAULTS_UnifiedPaintSettings, \
+    .unified_paint_settings = _STRUCTS_DEFAULTS_UnifiedPaintSettings, \
  \
-    .statvis = _DNA_DEFAULTS_MeshStatVis, \
+    .statvis = _STRUCTS_DEFAULTS_MeshStatVis, \
  \
     .proportional_size = 1.0f, \
  \
-    .imapaint = _DNA_DEFAULTS_ImagePaintSettings, \
+    .imapaint = _STRUCTS_DEFAULTS_ImagePaintSettings, \
  \
-    .particle = _DNA_DEFAULTS_ParticleEditSettings, \
+    .particle = _STRUCTS_DEFAULTS_ParticleEditSettings, \
  \
-    .gp_sculpt = _DNA_DEFAULTS_GP_Sculpt_Settings, \
+    .gp_sculpt = _STRUCTS_DEFAULTS_GP_Sculpt_Settings, \
  \
     /* Annotations */ \
     .annotate_v3d_align = GP_PROJECT_VIEWSPACE | GP_PROJECT_CURSOR, \
