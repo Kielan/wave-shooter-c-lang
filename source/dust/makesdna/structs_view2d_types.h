@@ -1,7 +1,3 @@
-/*
- * \ingroup DNA
- */
-
 #pragma once
 
 #include "structs_vec_types.h"
