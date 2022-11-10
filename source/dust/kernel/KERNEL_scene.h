@@ -1,9 +1,5 @@
 #pragma once
 
-/** \file
- * \ingroup bke
- */
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -32,7 +28,7 @@ typedef enum eSceneCopyMethod {
 #define SETLOOPER(_sce_basis, _sce_iter, _base) \
   _sce_iter = _sce_basis, \
   _base = _setlooper_base_step( \
-      &_sce_iter, BKE_view_layer_context_active_PLACEHOLDER(_sce_basis), NULL); \
+      &_sce_iter, KERNEL_view_layer_context_active_PLACEHOLDER(_sce_basis), NULL); \
   _base; \
   _base = _setlooper_base_step(&_sce_iter, NULL, _base)
 
@@ -135,7 +131,7 @@ void KERNEL_scene_view_layer_graph_evaluated_ensure(struct Main *bmain,
                                                  struct Scene *scene,
                                                  struct ViewLayer *view_layer);
 
-struct SceneRenderView *BKE_scene_add_render_view(struct Scene *sce, const char *name);
+struct SceneRenderView *KERNEL_scene_add_render_view(struct Scene *sce, const char *name);
 bool KERNEL_scene_remove_render_view(struct Scene *scene, struct SceneRenderView *srv);
 
 /* render profile */
@@ -155,10 +151,10 @@ void KERNEL_scene_disable_color_management(struct Scene *scene);
 bool KERNEL_scene_check_color_management_enabled(const struct Scene *scene);
 bool KERNEL_scene_check_rigidbody_active(const struct Scene *scene);
 
-int KE_scene_num_threads(const struct Scene *scene);
-int KE_render_num_threads(const struct RenderData *r);
+int KERNEL_scene_num_threads(const struct Scene *scene);
+int KERNEL_render_num_threads(const struct RenderData *r);
 
-int KE_render_preview_pixel_size(const struct RenderData *r);
+int KERNEL_render_preview_pixel_size(const struct RenderData *r);
 
 /**********************************/
 
@@ -171,7 +167,7 @@ bool KERNEL_scene_multiview_is_render_view_active(const struct RenderData *rd,
 bool KERNEL_scene_multiview_is_render_view_first(const struct RenderData *rd, const char *viewname);
 bool KERNEL_scene_multiview_is_render_view_last(const struct RenderData *rd, const char *viewname);
 int KERNEL_scene_multiview_num_views_get(const struct RenderData *rd);
-struct SceneRenderView *BKE_scene_multiview_render_view_findindex(const struct RenderData *rd,
+struct SceneRenderView *KERNEL_scene_multiview_render_view_findindex(const struct RenderData *rd,
                                                                   const int view_id);
 const char *KERNEL_scene_multiview_render_view_name_get(const struct RenderData *rd,
                                                      const int view_id);
@@ -240,7 +236,7 @@ void KERNEL_scene_cursor_from_mat4(struct View3DCursor *cursor,
  * This does NOT include actual rendering of the strips, but rather makes them up-to-date for
  * animation playback and makes them ready for the sequencer's rendering pipeline to render them.
  */
-void BKE_scene_eval_sequencer_sequences(struct Depsgraph *depsgraph, struct Scene *scene);
+void KERNEL_scene_eval_sequencer_sequences(struct Depsgraph *depsgraph, struct Scene *scene);
 
 #ifdef __cplusplus
 }
