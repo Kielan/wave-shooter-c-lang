@@ -91,7 +91,7 @@ typedef struct Camera {
   struct Ipo *ipo STRUCTS_DEPRECATED;
 
   struct Object *dof_ob STRUCTS_DEPRECATED;
-  struct GPUDOFSettings gpu_dof DNA_DEPRECATED;
+  struct GPUDOFSettings gpu_dof STRUCTS_DEPRECATED;
   struct CameraDOFSettings dof;
 
   /* CameraBGImage reference images */
@@ -137,7 +137,7 @@ enum {
   CAM_SHOWNAME = (1 << 4),
   CAM_ANGLETOGGLE = (1 << 5),
   CAM_DS_EXPAND = (1 << 6),
-#ifdef DNA_DEPRECATED_ALLOW
+#ifdef STRUCTS_DEPRECATED_ALLOW
   CAM_PANORAMA = (1 << 7), /* deprecated */
 #endif
   CAM_SHOWSENSOR = (1 << 8),
