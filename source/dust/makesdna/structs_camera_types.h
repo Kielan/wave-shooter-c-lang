@@ -85,12 +85,12 @@ typedef struct Camera {
   float lens, ortho_scale, drawsize;
   float sensor_x, sensor_y;
   float shiftx, shifty;
-  float dof_distance DNA_DEPRECATED;
+  float dof_distance STRUCTS_DEPRECATED;
 
   /** Old animation system, deprecated for 2.5. */
-  struct Ipo *ipo DNA_DEPRECATED;
+  struct Ipo *ipo STRUCTS_DEPRECATED;
 
-  struct Object *dof_ob DNA_DEPRECATED;
+  struct Object *dof_ob STRUCTS_DEPRECATED;
   struct GPUDOFSettings gpu_dof DNA_DEPRECATED;
   struct CameraDOFSettings dof;
 
