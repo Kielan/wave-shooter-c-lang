@@ -1,7 +1,7 @@
 #include <stddef.h>
 #include <string.h>
 
-#include "BKE_context.h"
+#include "KERNEL_context.h"
 
 #include "WM_api.h"
 #include "wm_draw.h"
