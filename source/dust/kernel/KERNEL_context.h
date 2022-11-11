@@ -1,12 +1,8 @@
 #pragma once
 
-/** \file
- * \ingroup bke
- */
-
-#include "DNA_listBase.h"
-#include "DNA_object_enums.h"
-#include "RNA_types.h"
+#include "STRUCTS_listBase.h"
+#include "STRUCTS_object_enums.h"
+#include "APIS_types.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -80,7 +76,7 @@ typedef struct bContextStoreEntry {
   struct bContextStoreEntry *next, *prev;
 
   char name[128];
-  PointerRNA ptr;
+  PointerAPIS ptr;
 } bContextStoreEntry;
 
 typedef struct bContextStore {
@@ -191,7 +187,7 @@ void CTX_wm_operator_poll_msg_set(struct bContext *C, const char *msg);
 /* Data Context
  *
  * - listbases consist of CollectionPointerLink items and must be
- *   freed with BLI_freelistN!
+ *   freed with LIB_freelistN!
  * - the dir listbase consists of LinkData items */
 
 /* data type, needed so we can tell between a NULL pointer and an empty list */
@@ -201,7 +197,7 @@ enum {
 };
 
 PointerRNA CTX_data_pointer_get(const bContext *C, const char *member);
-PointerRNA CTX_data_pointer_get_type(const bContext *C, const char *member, StructRNA *type);
+PointerRNA CTX_data_pointer_get_type(const bContext *C, const char *member, StructAPIS *type);
 PointerRNA CTX_data_pointer_get_type_silent(const bContext *C,
                                             const char *member,
                                             StructRNA *type);
@@ -238,7 +234,7 @@ bool CTX_data_dir(const char *member);
 
 #define CTX_DATA_END \
   } \
-  BLI_freelistN(&ctx_data_list); \
+  LIB_freelistN(&ctx_data_list); \
   } \
   (void)0
 
